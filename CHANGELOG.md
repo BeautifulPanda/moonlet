@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.1] - 2026-11-20
+
+- "What's new" in the settings window (General → Updates): the changes of
+  this version and the previous one, in the interface language.
+- Clicking the "Moonlet updated" notification opens the settings on that list.
+
 ## [0.3.0] - 2026-11-20
 
 - Settings window in Moonlet's style: tray menu → "Open settings", the hub

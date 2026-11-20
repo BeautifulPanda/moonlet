@@ -36,7 +36,8 @@ use windows::Win32::Graphics::DirectWrite::DWRITE_HIT_TEST_METRICS;
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
     DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_METRICS,
-    DWRITE_WORD_WRAPPING_NO_WRAP, DWriteCreateFactory, IDWriteFactory, IDWriteTextLayout,
+    DWRITE_WORD_WRAPPING_NO_WRAP, DWRITE_WORD_WRAPPING_WRAP, DWriteCreateFactory, IDWriteFactory,
+    IDWriteTextLayout,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_TRIMMING, DWRITE_TRIMMING_GRANULARITY_CHARACTER,
@@ -257,7 +258,12 @@ impl Gfx {
         bold: bool,
         max_width: Option<f32>,
     ) -> Result<TextBlock> {
-        self.layout(text, w!("Segoe UI"), size, bold, max_width)
+        self.layout(text, w!("Segoe UI"), size, bold, max_width, false)
+    }
+
+    #[cfg(feature = "settings")]
+    pub fn text_wrap(&self, text: &str, size: f32, width: f32) -> Result<TextBlock> {
+        self.layout(text, w!("Segoe UI"), size, false, Some(width), true)
     }
 
     pub fn icon(&self, glyph: char, size: f32) -> Result<TextBlock> {
@@ -267,6 +273,7 @@ impl Gfx {
             size,
             false,
             None,
+            false,
         )
     }
 
@@ -277,6 +284,7 @@ impl Gfx {
         size: f32,
         bold: bool,
         max_width: Option<f32>,
+        wrap: bool,
     ) -> Result<TextBlock> {
         unsafe {
             let factory = match self.dwrite.get() {
@@ -300,8 +308,12 @@ impl Gfx {
                 size,
                 w!("ru-ru"),
             )?;
-            format.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
-            if max_width.is_some() {
+            if wrap {
+                format.SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP)?;
+            } else {
+                format.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
+            }
+            if max_width.is_some() && !wrap {
                 let trimming = DWRITE_TRIMMING {
                     granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER,
                     delimiter: 0,

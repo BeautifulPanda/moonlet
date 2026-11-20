@@ -74,6 +74,7 @@ pub enum Setting {
     UpdateMode,
     #[cfg(feature = "update")]
     CheckNow,
+    News,
     #[cfg(feature = "orbit")]
     OrbitModule,
     #[cfg(feature = "orbit")]
@@ -140,6 +141,7 @@ pub enum Control {
     Button(&'static str),
     Order { on: bool, up: bool, down: bool },
     Info(String),
+    Note { strong: bool },
 }
 
 pub struct Row {
@@ -190,7 +192,11 @@ impl Row {
     }
 
     pub fn focusable(&self) -> bool {
-        self.setting.is_some() && !matches!(self.control, Control::Header | Control::Info(_))
+        self.setting.is_some()
+            && !matches!(
+                self.control,
+                Control::Header | Control::Info(_) | Control::Note { .. }
+            )
     }
 }
 
@@ -200,6 +206,57 @@ pub struct Ui {
     pub message: Option<(Setting, &'static str, bool)>,
     pub file_error: Option<String>,
     pub has_battery: bool,
+    pub news_open: bool,
+}
+
+const NEWS: [(&str, &[(&str, &str)]); 2] = [
+    (
+        "0.3.1",
+        &[(
+            "«Что нового» прямо в настройках; клик по уведомлению «Moonlet обновлён» открывает этот список.",
+            "\"What's new\" right in the settings; clicking the \"Moonlet updated\" notification opens this list.",
+        )],
+    ),
+    (
+        "0.3.0",
+        &[
+            (
+                "Окно настроек вместо Блокнота: язык, автозапуск, обновления, орбита, спутники и их порядок, временные спутники, клавиша и поиск командной строки.",
+                "A settings window instead of Notepad: language, start with Windows, updates, the orbit, satellites and their order, temporary satellites, the command line hotkey and search.",
+            ),
+            (
+                "Правки сразу сохраняются в config.toml, комментарии в файле остаются.",
+                "Changes are saved to config.toml at once; comments in the file are kept.",
+            ),
+            (
+                "В меню трея — «Открыть config.toml» для ручной правки.",
+                "The tray menu has \"Open config.toml\" for editing by hand.",
+            ),
+        ],
+    ),
+];
+
+fn news(rows: &mut Vec<Row>) {
+    for (version, items) in NEWS {
+        rows.push(Row {
+            setting: None,
+            label: version.to_string(),
+            hint: String::new(),
+            control: Control::Note { strong: true },
+            dim: false,
+            warn: false,
+        });
+        for &(ru, en) in items {
+            rows.push(Row {
+                setting: None,
+                label: tr(ru, en).to_string(),
+                hint: String::new(),
+                control: Control::Note { strong: false },
+                dim: false,
+                warn: false,
+            });
+        }
+    }
 }
 
 #[cfg(feature = "launcher")]
@@ -311,8 +368,23 @@ fn general(rows: &mut Vec<Row>, config: &Config, ui: &Ui) {
             .message(ui),
         );
     }
-    #[cfg(not(any(feature = "orbit", feature = "update")))]
-    let _ = ui;
+    rows.push(Row::new(
+        Setting::News,
+        &format!(
+            "{} {}",
+            tr("Что нового в", "What's new in"),
+            env!("CARGO_PKG_VERSION")
+        ),
+        "",
+        Control::Button(if ui.news_open {
+            tr("Скрыть", "Hide")
+        } else {
+            tr("Показать", "Show")
+        }),
+    ));
+    if ui.news_open {
+        news(rows);
+    }
 }
 
 #[cfg(feature = "orbit")]
@@ -776,6 +848,7 @@ mod tests {
         let mut config = Config::default();
         let mut ui = Ui::default();
         let mut text = config.to_toml();
+        #[allow(unused_mut)]
         let mut steps: Vec<(Setting, Change)> = vec![
             (Setting::Language, Change::Pick(2)),
             (Setting::Autostart, Change::Toggle),
@@ -868,6 +941,23 @@ mod tests {
         assert!(has_field(&rows(Section::Launcher, &config, &ui)));
         apply(&mut config, &mut ui, Setting::Search, Change::Pick(1));
         assert!(!has_field(&rows(Section::Launcher, &config, &ui)));
+    }
+
+    #[test]
+    fn news_list_opens_under_the_button() {
+        let config = Config::default();
+        let mut ui = Ui::default();
+        let notes = |ui: &Ui| {
+            rows(Section::General, &config, ui)
+                .iter()
+                .filter(|row| matches!(row.control, Control::Note { .. }))
+                .count()
+        };
+        assert_eq!(notes(&ui), 0);
+        ui.news_open = true;
+        let count: usize = NEWS.iter().map(|(_, items)| 1 + items.len()).sum();
+        assert_eq!(notes(&ui), count);
+        assert_eq!(NEWS[0].0, env!("CARGO_PKG_VERSION"));
     }
 
     #[test]

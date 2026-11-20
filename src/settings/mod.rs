@@ -111,7 +111,7 @@ thread_local! {
     static WINDOW: RefCell<Option<Settings>> = const { RefCell::new(None) };
 }
 
-pub fn run() {
+pub fn run(news: bool) {
     let Some(_instance) = SingleInstance::named(w!("Local\\Moonlet.Settings")) else {
         bring_to_front();
         return;
@@ -125,7 +125,7 @@ pub fn run() {
         Err(error) => (Config::default(), Some(error.to_string())),
     };
     lang::set(config.language);
-    if let Err(error) = open(config, file_error) {
+    if let Err(error) = open(config, file_error, news) {
         let text = HSTRING::from(format!("Moonlet settings failed to open:\n{error}"));
         unsafe {
             windows::Win32::UI::WindowsAndMessaging::MessageBoxW(
@@ -155,11 +155,12 @@ fn bring_to_front() {
     }
 }
 
-fn open(config: Config, file_error: Option<String>) -> Result<()> {
+fn open(config: Config, file_error: Option<String>, news: bool) -> Result<()> {
     let (hwnd, scale) = create_window()?;
     #[allow(unused_mut)]
     let mut ui = Ui {
         file_error,
+        news_open: news,
         ..Ui::default()
     };
     #[cfg(feature = "orbit")]
@@ -188,6 +189,9 @@ fn open(config: Config, file_error: Option<String>) -> Result<()> {
         canvas: None,
     };
     settings.build_canvas(scale)?;
+    if news {
+        settings.reveal_news();
+    }
     set_icons(hwnd, scale);
     WINDOW.with(|cell| *cell.borrow_mut() = Some(settings));
     unsafe {
@@ -771,6 +775,29 @@ impl Settings {
         self.scroll_by(dy);
     }
 
+    fn reveal_news(&mut self) {
+        let Some(c) = &self.canvas else {
+            return;
+        };
+        let Some(start) = self
+            .rows
+            .iter()
+            .position(|row| row.setting == Some(Setting::News))
+        else {
+            return;
+        };
+        let end = self.rows.len() - 1;
+        let s = c.view.scale;
+        let (scroll, view_h) = (c.view.scroll.to, c.view.viewport().1);
+        let margin = 12.0 * s;
+        let top = self.layout.rows[start].y - margin;
+        let bottom = self.layout.rows[end].y + self.layout.rows[end].h + margin;
+        let target = (bottom - view_h).min(top).max(0.0);
+        if target > scroll {
+            self.scroll_by(target - scroll);
+        }
+    }
+
     fn set_focus(&mut self, focus: Focus) {
         if focus == self.focus {
             return;
@@ -916,6 +943,13 @@ impl Settings {
                     ),
                 });
                 self.refresh();
+            }
+            Setting::News => {
+                self.ui.news_open = !self.ui.news_open;
+                self.refresh();
+                if self.ui.news_open {
+                    self.reveal_news();
+                }
             }
             Setting::OpenFile => config::open_in_notepad(),
             Setting::Website => unsafe {

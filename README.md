@@ -71,6 +71,7 @@ line) opens the settings window: language, start with Windows, updates, orbit
 shape and speed, which satellites to show and in what order, temporary
 satellites, the command line hotkey and web search. Every change applies at
 once. The window is a separate process, so closing it frees all of its memory.
+"What's new" in General → Updates lists the changes of the installed version.
 
 ![Settings](docs/settings.png)
 
@@ -186,7 +187,8 @@ DirectComposition — без веб-движков и GUI-фреймворков
 строке) открывает окно настроек: язык, автозапуск, обновления, форма и скорость
 орбиты, какие спутники и в каком порядке, временные спутники, клавиша и поиск
 командной строки. Каждая правка применяется сразу. Окно — отдельный процесс:
-закрыли его, и вся его память освободилась.
+закрыли его, и вся его память освободилась. «Что нового» в «Общих» → «Обновления»
+показывает изменения установленной версии.
 
 Всё хранится в `%APPDATA%\Moonlet\config.toml` («Открыть config.toml» в меню
 трея). Файл с пояснениями, его можно править руками, в том числе размеры,

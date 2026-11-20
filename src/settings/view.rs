@@ -569,7 +569,21 @@ impl View {
                 Control::List(options, _) => base + options.len() as f32 * OPTION_H,
                 _ => base,
             };
-            let h = (h * s).round();
+            let mut h = (h * s).round();
+            if let Control::Note { strong } = row.control {
+                let size = 12.0 * s;
+                let text_h = gfx
+                    .text_wrap(&row.label, size, note_width(gw, strong, s))
+                    .map_or(16.0 * s, |t| t.height);
+                let top = if strong { 10.0 } else { 3.0 } * s;
+                h = (top + text_h + 3.0 * s).round();
+                if rows
+                    .get(index + 1)
+                    .is_none_or(|next| !matches!(next.control, Control::Note { .. }))
+                {
+                    h += (10.0 * s).round();
+                }
+            }
             let cy = y + (base * s / 2.0).round();
             let mut parts = Vec::new();
             let mut track = (0.0, 0.0);
@@ -634,13 +648,13 @@ impl View {
                     parts.push((Part::Field, rect));
                     text_box = (rect.0 + 10.0 * s, rect.1, w - 20.0 * s, rect.3);
                 }
-                Control::Header | Control::Info(_) => {}
+                Control::Header | Control::Info(_) | Control::Note { .. } => {}
             }
             let control_left = match &row.control {
                 Control::Toggle(_) => right - 36.0 * s,
                 Control::Slider(_) => track.0 - 64.0 * s,
                 Control::Info(text) => right - text_width(text, 12.0 * s),
-                Control::List(..) | Control::Header => right,
+                Control::List(..) | Control::Header | Control::Note { .. } => right,
                 _ => parts.first().map_or(right, |(_, r)| r.0),
             };
             let text_max = control_left - 16.0 * s - (gx + INSET * s);
@@ -926,7 +940,12 @@ impl RowText {
         let caption = matches!(row.control, Control::Header);
         let size = if caption { 11.0 } else { 13.0 } * s;
         let max = Some(b.text_max.max(40.0));
-        let label = gfx.text_fit(&row.label, size, false, max).ok()?;
+        let label = match row.control {
+            Control::Note { strong } => gfx
+                .text_wrap(&row.label, 12.0 * s, note_width(b.group.2, strong, s))
+                .ok()?,
+            _ => gfx.text_fit(&row.label, size, false, max).ok()?,
+        };
         let hint = (!row.hint.is_empty())
             .then(|| gfx.text_fit(&row.hint, 11.0 * s, false, max).ok())
             .flatten();
@@ -961,6 +980,13 @@ impl RowText {
             control,
         })
     }
+}
+
+const NOTE_INDENT: f32 = 14.0;
+
+fn note_width(group_w: f32, strong: bool, s: f32) -> f32 {
+    let indent = if strong { 0.0 } else { NOTE_INDENT };
+    group_w - (2.0 * INSET + indent) * s
 }
 
 fn centered(p: &Painter, block: &TextBlock, r: Rect, color: D2D1_COLOR_F) {
@@ -1005,6 +1031,24 @@ fn paint_row(
         p.clip(rect, || {
             p.rounded_rect(b.group, 8.0 * s, gfx::rgb(HOVER, 1.0), none());
         });
+    }
+    if let Control::Note { strong } = row.control {
+        let top = (rect.1 + if strong { 10.0 } else { 3.0 } * s).round();
+        let x = rect.0 + (INSET * s).round();
+        if strong {
+            p.text(&text.label, x, top, gfx::rgb(TEXT, 1.0));
+        } else {
+            if let Ok(bullet) = gfx.text("•", 12.0 * s, false) {
+                p.text(&bullet, x, top, gfx::rgb(FAINT, 1.0));
+            }
+            p.text(
+                &text.label,
+                x + (NOTE_INDENT * s).round(),
+                top,
+                gfx::rgb(DIM, 1.0),
+            );
+        }
+        return;
     }
     if !b.first {
         p.rounded_rect(
@@ -1248,7 +1292,7 @@ fn paint_row(
                 );
             }
         }
-        Control::Header => {}
+        Control::Header | Control::Note { .. } => {}
     }
 }
 

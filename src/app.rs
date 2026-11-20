@@ -174,6 +174,8 @@ struct App {
     update_manual: bool,
     #[cfg(feature = "update")]
     update_install: bool,
+    #[cfg(feature = "update")]
+    just_updated: bool,
 }
 
 thread_local! {
@@ -236,6 +238,8 @@ pub fn run(updated: bool) -> Result<()> {
         update_manual: false,
         #[cfg(feature = "update")]
         update_install: false,
+        #[cfg(feature = "update")]
+        just_updated: updated,
     };
     #[cfg(feature = "orbit")]
     app.start_orbit();
@@ -584,7 +588,7 @@ impl App {
                 autostart::apply(on);
                 self.save("general", "autostart", yes_no(on));
             }
-            CMD_OPEN_CONFIG => self.open_settings(),
+            CMD_OPEN_CONFIG => self.open_settings(false),
             #[cfg(feature = "settings")]
             CMD_OPEN_CONFIG_FILE => config::open_in_notepad(),
             #[cfg(feature = "orbit")]
@@ -695,7 +699,7 @@ impl App {
     }
 
     #[cfg(feature = "settings")]
-    fn open_settings(&self) {
+    fn open_settings(&self, news: bool) {
         let Ok(exe) = std::env::current_exe() else {
             return;
         };
@@ -705,7 +709,11 @@ impl App {
                 Some(self.hwnd),
                 w!("open"),
                 &HSTRING::from(exe.as_os_str()),
-                w!("--settings"),
+                if news {
+                    w!("--settings --news")
+                } else {
+                    w!("--settings")
+                },
                 PCWSTR::null(),
                 SW_SHOWNORMAL,
             );
@@ -713,7 +721,7 @@ impl App {
     }
 
     #[cfg(not(feature = "settings"))]
-    fn open_settings(&self) {
+    fn open_settings(&self, _news: bool) {
         config::open_in_notepad();
     }
 
@@ -999,6 +1007,8 @@ impl App {
     fn balloon_clicked(&mut self) {
         if self.update_available.is_some() {
             self.check_updates(true);
+        } else if std::mem::take(&mut self.just_updated) {
+            self.open_settings(true);
         }
     }
 

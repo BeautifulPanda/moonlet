@@ -41,7 +41,7 @@ fn main() {
 
     #[cfg(feature = "settings")]
     if std::env::args().any(|arg| arg == "--settings") {
-        settings::run();
+        settings::run(std::env::args().any(|arg| arg == "--news"));
         return;
     }
 
