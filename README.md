@@ -13,7 +13,7 @@ with satellites slowly circling around it, one satellite per feature. It is
 written in Rust directly on Win32, Direct2D and DirectComposition — no web
 views, no GUI frameworks.
 
-- **Light.** One ~480 KB `moonlet.exe`, about 9 MB of RAM.
+- **Light.** One ~580 KB `moonlet.exe`, about 9 MB of RAM.
 - **Quiet.** No polling: the process sleeps until Windows reports an event.
   Animations run inside DWM, so Moonlet itself uses 0% CPU while things move.
 - **Kind to the battery.** Animations stop on battery power (can be turned
@@ -39,6 +39,17 @@ views, no GUI frameworks.
 - **Temporary satellites.** Plugging the charger in or out and a low battery
   (20% and 10%) send a small copy of the battery satellite out with a short
   note. A new song can do the same (off by default).
+- **Command line.** `Ctrl+Alt+Space` slides a field out of the core:
+  - apps from the Start menu (it understands a wrong keyboard layout and
+    Russian typed for English names: `ntktuhfv` finds Telegram);
+  - Moonlet commands: `pause`, `next`, `back`, `volume 30`, `circle`, `oval`,
+    `rotate`, `screenshot`, `settings` (Russian words work too);
+  - a calculator: `(1,5+2)*3`, `2^10`, `15%`, `√16`; Enter copies the answer;
+  - `github.com` opens the site, anything else searches the web with your
+    default browser's search engine.
+
+  Esc or a click elsewhere closes it. The line is not shown during full-screen
+  apps, and it takes no memory while closed.
 
 ![A temporary satellite](docs/notice.png)
 ![The hub](docs/hub.png)
@@ -58,7 +69,17 @@ publisher the first time.
 Tray menu → "Open settings" opens `%APPDATA%\Moonlet\config.toml`. Changes
 apply as soon as the file is saved. Every option is commented in the file:
 orbit shape and speed, which satellites to show and in what order, temporary
-satellites, language (`auto`, `en`, `ru`) and updates.
+satellites, the command line hotkey and search, language (`auto`, `en`, `ru`)
+and updates.
+
+A `config.toml` created by an older version keeps working; to change the
+command line settings, add
+
+```toml
+[launcher]
+hotkey = "Ctrl+Alt+Space"
+search = ""   # empty: the browser's engine, or e.g. "https://duckduckgo.com/?q="
+```
 
 ### Updates
 
@@ -88,7 +109,6 @@ without music and updates.
 
 ### Plans
 
-- Command line on a hotkey (apps, calculator, web search, Moonlet commands).
 - Desktop widgets.
 - Top bar and themes.
 - Live wallpapers.
@@ -105,7 +125,7 @@ Moonlet добавляет поверх Windows небольшой тихий с
 по одному на функцию. Написан на Rust прямо на Win32, Direct2D и
 DirectComposition — без веб-движков и GUI-фреймворков.
 
-- **Лёгкий.** Один `moonlet.exe` около 480 КБ, около 9 МБ памяти.
+- **Лёгкий.** Один `moonlet.exe` около 580 КБ, около 9 МБ памяти.
 - **Тихий.** Никакого опроса: процесс спит, пока Windows не сообщит о событии.
   Анимации выполняет DWM, сам Moonlet в это время не тратит CPU.
 - **Бережёт батарею.** Анимации останавливаются от батареи (можно отключить)
@@ -131,6 +151,17 @@ DirectComposition — без веб-движков и GUI-фреймворков
 - **Временные спутники.** Подключили или отключили зарядку, заряд упал до 20%
   и 10% — из спутника батареи вылетает его маленькая копия с короткой надписью.
   Так же можно показывать новый трек (по умолчанию выключено).
+- **Командная строка.** `Ctrl+Alt+Space` — из ядра выезжает поле:
+  - программы из меню «Пуск» (понимает неверную раскладку и русское название
+    английской программы: `ntktuhfv` находит Telegram);
+  - команды Moonlet: `пауза`, `дальше`, `назад`, `громкость 30`, `круг`,
+    `овал`, `вращение`, `скриншот`, `настройки` (английские слова тоже);
+  - калькулятор: `(1,5+2)*3`, `2^10`, `15%`, `√16`; Enter копирует ответ;
+  - `github.com` открывает сайт, остальное ищется в интернете поисковиком
+    браузера по умолчанию.
+
+  Esc или клик мимо закрывают строку. Во время полноэкранных приложений она
+  не открывается, а закрытая не занимает памяти.
 
 ### Установка
 
@@ -148,7 +179,17 @@ DirectComposition — без веб-движков и GUI-фреймворков
 Меню трея → «Открыть настройки» открывает `%APPDATA%\Moonlet\config.toml`.
 Изменения применяются сразу после сохранения. Каждый параметр описан прямо в
 файле: форма и скорость орбиты, какие спутники и в каком порядке, временные
-спутники, язык (`auto`, `ru`, `en`) и обновления.
+спутники, клавиша и поиск командной строки, язык (`auto`, `ru`, `en`)
+и обновления.
+
+`config.toml` от прежней версии работает как есть; чтобы поменять настройки
+командной строки, допишите
+
+```toml
+[launcher]
+hotkey = "Ctrl+Alt+Space"
+search = ""   # пусто — поисковик браузера, или, например, "https://duckduckgo.com/?q="
+```
 
 ### Обновления
 
@@ -178,7 +219,6 @@ cargo build --release
 
 ### Планы
 
-- Командная строка по горячей клавише (программы, калькулятор, поиск, команды).
 - Виджеты на рабочем столе.
 - Верхний бар и темы.
 - Живые обои.

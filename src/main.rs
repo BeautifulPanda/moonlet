@@ -4,6 +4,8 @@
 mod app;
 mod autostart;
 mod config;
+#[cfg(feature = "launcher")]
+mod hotkey;
 mod icon;
 mod lang;
 mod screen;

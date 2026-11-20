@@ -1,13 +1,18 @@
 [package]
 name = "moonlet"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 description = "Lightweight, modular desktop customization for Windows"
 publish = false
 
 [features]
-default = ["orbit", "music", "update"]
+default = ["orbit", "music", "update", "launcher"]
+launcher = [
+    "orbit",
+    "windows/Win32_System_DataExchange",
+    "windows/Win32_System_Memory",
+]
 update = [
     "windows/Win32_Networking_WinHttp",
     "windows/Win32_Security_Cryptography",

@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.0] - 2026-11-20
+
+- Command line on `Ctrl+Alt+Space` (configurable in `config.toml`, section
+  `[launcher]`): the field slides out of the orbit core with suggestions below.
+  - Start menu apps, including names localized by Windows. A wrong keyboard
+    layout and Russian typed for English names are understood
+    (`ntktuhfv` → Telegram).
+  - Moonlet commands in English and Russian: play/pause, next, previous,
+    `volume N`, circle, oval, rotation, screenshot, settings.
+  - Calculator with `+ - * / ^ %`, parentheses, `√` and a decimal comma;
+    Enter copies the answer.
+  - Site addresses open directly; anything else searches the web with the
+    default browser's search engine (or an address set in `config.toml`).
+- The tray menu shows the command line switch with its hotkey.
+- The command line is not opened during full-screen apps. Its window and
+  layers exist only while it is open.
+
 ## [0.1.0] - 2026-11-19
 
 First public version.

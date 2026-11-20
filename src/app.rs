@@ -31,6 +31,8 @@ use crate::watch::DirWatch;
 use crate::config::OrbitConfig;
 #[cfg(feature = "orbit")]
 use crate::fullscreen::{self, FullscreenWatch};
+#[cfg(feature = "launcher")]
+use crate::hotkey::Hotkey;
 #[cfg(feature = "orbit")]
 use crate::orbit::Orbit;
 #[cfg(feature = "orbit")]
@@ -41,6 +43,12 @@ use crate::power::{self, PowerWatch};
 use crate::update::{self, Mode as UpdateMode, Outcome, Updater};
 #[cfg(feature = "update")]
 use std::path::PathBuf;
+#[cfg(feature = "launcher")]
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    HOT_KEY_MODIFIERS, MOD_NOREPEAT, RegisterHotKey, UnregisterHotKey,
+};
+#[cfg(feature = "launcher")]
+use windows::Win32::UI::WindowsAndMessaging::WM_HOTKEY;
 #[cfg(feature = "orbit")]
 use windows::Win32::UI::WindowsAndMessaging::{WM_POWERBROADCAST, WM_TIMECHANGE};
 
@@ -62,9 +70,9 @@ const CMD_EXIT: u32 = 100;
 const CMD_AUTOSTART: u32 = 105;
 pub const CMD_OPEN_CONFIG: u32 = 106;
 #[cfg(feature = "orbit")]
-const CMD_SHAPE_CIRCLE: u32 = 101;
+pub const CMD_SHAPE_CIRCLE: u32 = 101;
 #[cfg(feature = "orbit")]
-const CMD_SHAPE_OVAL: u32 = 102;
+pub const CMD_SHAPE_OVAL: u32 = 102;
 #[cfg(feature = "orbit")]
 pub const CMD_ROTATION: u32 = 103;
 #[cfg(feature = "orbit")]
@@ -91,6 +99,10 @@ const UPDATE_TIMER: usize = 3;
 const FIRST_CHECK_MS: u32 = 60_000;
 #[cfg(feature = "update")]
 const DAY_MS: u32 = 24 * 60 * 60 * 1000;
+#[cfg(feature = "launcher")]
+const CMD_MODULE_LAUNCHER: u32 = 115;
+#[cfg(feature = "launcher")]
+const HOTKEY_ID: i32 = 1;
 #[cfg(all(feature = "orbit", feature = "dev"))]
 const CMD_DEV_DEVICE_LOST: u32 = 900;
 #[cfg(all(feature = "orbit", feature = "dev"))]
@@ -137,6 +149,8 @@ struct App {
     orbit: Option<Orbit>,
     #[cfg(feature = "orbit")]
     restart_tries: u32,
+    #[cfg(feature = "launcher")]
+    hotkey: Option<Hotkey>,
     #[cfg(feature = "update")]
     updater: Updater,
     #[cfg(feature = "update")]
@@ -197,6 +211,8 @@ pub fn run(updated: bool) -> Result<()> {
         orbit: None,
         #[cfg(feature = "orbit")]
         restart_tries: 0,
+        #[cfg(feature = "launcher")]
+        hotkey: None,
         #[cfg(feature = "update")]
         updater: Updater::new(hwnd),
         #[cfg(feature = "update")]
@@ -210,6 +226,8 @@ pub fn run(updated: bool) -> Result<()> {
     };
     #[cfg(feature = "orbit")]
     app.start_orbit();
+    #[cfg(feature = "launcher")]
+    app.sync_hotkey();
     #[cfg(feature = "update")]
     {
         update::clean_up();
@@ -430,6 +448,14 @@ impl App {
                 }
                 Some(LRESULT(1))
             }
+            #[cfg(feature = "launcher")]
+            WM_HOTKEY if wparam.0 == HOTKEY_ID as usize => {
+                if !self.fullscreen {
+                    let search = self.config.launcher.search.clone();
+                    self.with_orbit(|orbit| orbit.toggle_launcher(&search));
+                }
+                Some(LRESULT(0))
+            }
             #[cfg(feature = "orbit")]
             WM_TIMECHANGE => {
                 self.with_orbit(|orbit| orbit.refresh_clock());
@@ -483,12 +509,12 @@ impl App {
                         radii == OrbitConfig::OVAL,
                     ),
                     MenuItem::Separator,
-                    MenuItem::Check(CMD_ROTATION, tr("Вращение", "Rotation"), o.rotate),
+                    MenuItem::Check(CMD_ROTATION, tr("Вращение", "Rotation").into(), o.rotate),
                 ]);
                 if power::has_battery() {
                     items.push(MenuItem::Check(
                         CMD_PAUSE_ON_BATTERY,
-                        tr("Пауза от батареи", "Pause on battery"),
+                        tr("Пауза от батареи", "Pause on battery").into(),
                         self.config.pause_on_battery,
                     ));
                 }
@@ -496,13 +522,25 @@ impl App {
             }
             items.push(MenuItem::Check(
                 CMD_MODULE_ORBIT,
-                tr("Модуль «Орбита»", "Orbit module"),
+                tr("Модуль «Орбита»", "Orbit module").into(),
                 self.config.orbit_enabled,
+            ));
+        }
+        #[cfg(feature = "launcher")]
+        if self.config.orbit_enabled {
+            items.push(MenuItem::Check(
+                CMD_MODULE_LAUNCHER,
+                format!(
+                    "{}\t{}",
+                    tr("Командная строка", "Command line"),
+                    self.config.launcher.hotkey.name()
+                ),
+                self.config.launcher_enabled,
             ));
         }
         items.push(MenuItem::Check(
             CMD_AUTOSTART,
-            tr("Запускать с Windows", "Start with Windows"),
+            tr("Запускать с Windows", "Start with Windows").into(),
             self.config.autostart,
         ));
         #[cfg(feature = "update")]
@@ -565,6 +603,15 @@ impl App {
                 } else {
                     self.orbit = None;
                 }
+                #[cfg(feature = "launcher")]
+                self.sync_hotkey();
+            }
+            #[cfg(feature = "launcher")]
+            CMD_MODULE_LAUNCHER => {
+                let on = !self.config.launcher_enabled;
+                self.config.launcher_enabled = on;
+                self.save("modules", "launcher", yes_no(on));
+                self.sync_hotkey();
             }
             #[cfg(feature = "update")]
             CMD_UPDATE_AUTO => self.set_update_mode(UpdateMode::Auto),
@@ -669,6 +716,8 @@ impl App {
         }
         #[cfg(feature = "orbit")]
         self.sync_orbit(&old.orbit);
+        #[cfg(feature = "launcher")]
+        self.sync_hotkey();
         #[cfg(feature = "update")]
         if old.update != self.config.update {
             self.schedule_update_check(FIRST_CHECK_MS);
@@ -807,6 +856,48 @@ impl App {
         if let Some(orbit) = &mut self.orbit {
             orbit.set_rotate_setting(setting);
             let _ = orbit.set_rotating(rotate);
+        }
+    }
+}
+
+#[cfg(feature = "launcher")]
+impl App {
+    fn sync_hotkey(&mut self) {
+        let wanted = (self.config.orbit_enabled && self.config.launcher_enabled)
+            .then_some(self.config.launcher.hotkey);
+        if wanted == self.hotkey {
+            return;
+        }
+        unsafe {
+            if self.hotkey.take().is_some() {
+                let _ = UnregisterHotKey(Some(self.hwnd), HOTKEY_ID);
+            }
+            let Some(key) = wanted else {
+                return;
+            };
+            let modifiers = HOT_KEY_MODIFIERS(key.modifiers) | MOD_NOREPEAT;
+            if RegisterHotKey(Some(self.hwnd), HOTKEY_ID, modifiers, key.key).is_ok() {
+                self.hotkey = Some(key);
+            } else {
+                self.tray.notify(
+                    tr(
+                        "Moonlet: клавиша командной строки занята",
+                        "Moonlet: the command line hotkey is taken",
+                    ),
+                    &format!(
+                        "{} {}. {}",
+                        key.name(),
+                        tr(
+                            "уже использует другая программа",
+                            "is already used by another program",
+                        ),
+                        tr(
+                            "Выберите другую в config.toml, раздел [launcher].",
+                            "Pick another one in config.toml, section [launcher].",
+                        )
+                    ),
+                );
+            }
         }
     }
 }

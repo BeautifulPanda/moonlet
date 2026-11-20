@@ -1,6 +1,8 @@
 use std::fmt;
 use std::path::PathBuf;
 
+#[cfg(feature = "launcher")]
+use crate::hotkey::Hotkey;
 use crate::lang::{Language, tr};
 use crate::toml::{self, ParseError, Table};
 
@@ -16,6 +18,27 @@ pub struct Config {
     pub orbit_enabled: bool,
     #[cfg(feature = "orbit")]
     pub orbit: OrbitConfig,
+    #[cfg(feature = "launcher")]
+    pub launcher_enabled: bool,
+    #[cfg(feature = "launcher")]
+    pub launcher: LauncherConfig,
+}
+
+#[cfg(feature = "launcher")]
+#[derive(Clone, Debug, PartialEq)]
+pub struct LauncherConfig {
+    pub hotkey: Hotkey,
+    pub search: String,
+}
+
+#[cfg(feature = "launcher")]
+impl Default for LauncherConfig {
+    fn default() -> Self {
+        Self {
+            hotkey: Hotkey::DEFAULT,
+            search: String::new(),
+        }
+    }
 }
 
 #[cfg_attr(not(feature = "orbit"), allow(clippy::derivable_impls))]
@@ -32,6 +55,10 @@ impl Default for Config {
             orbit_enabled: true,
             #[cfg(feature = "orbit")]
             orbit: OrbitConfig::default(),
+            #[cfg(feature = "launcher")]
+            launcher_enabled: true,
+            #[cfg(feature = "launcher")]
+            launcher: LauncherConfig::default(),
         }
     }
 }
@@ -231,6 +258,12 @@ impl Config {
             read.bool("notices", "track", &mut n.track)?;
             read.number("notices", "seconds", 1.0, 30.0, &mut n.seconds)?;
         }
+        #[cfg(feature = "launcher")]
+        {
+            read.bool("modules", "launcher", &mut config.launcher_enabled)?;
+            read.hotkey("launcher", "hotkey", &mut config.launcher.hotkey)?;
+            read.string("launcher", "search", &mut config.launcher.search)?;
+        }
         Ok(config)
     }
 
@@ -268,7 +301,16 @@ impl Config {
                 "Выключенный модуль не загружается и не тратит память.",
                 "A disabled module is not loaded and uses no memory.",
             );
-            text += &format!("orbit = {}\n\n", self.orbit_enabled);
+            text += &format!("orbit = {}\n", self.orbit_enabled);
+            #[cfg(feature = "launcher")]
+            {
+                text += &comment(
+                    "Командная строка по горячей клавише (работает вместе с орбитой).",
+                    "Command line on a hotkey (works together with the orbit).",
+                );
+                text += &format!("launcher = {}\n", self.launcher_enabled);
+            }
+            text += "\n";
             text += "[orbit]\n";
             text += &comment(
                 "Радиусы орбиты. Одинаковые — круг, разные — овал.",
@@ -313,6 +355,10 @@ impl Config {
             text += &format!("satellites = [{}]\n\n", names.join(", "));
             text += &notices_toml(&o.notices);
         }
+        #[cfg(feature = "launcher")]
+        {
+            text += &launcher_toml(&self.launcher);
+        }
         #[cfg(feature = "update")]
         {
             text += "\n[update]\n";
@@ -355,6 +401,31 @@ fn notices_toml(n: &NoticeConfig) -> String {
     );
     text += &format!("seconds = {}\n", number(n.seconds));
     text
+}
+
+#[cfg(feature = "launcher")]
+fn launcher_toml(l: &LauncherConfig) -> String {
+    let mut text = String::from("\n[launcher]\n");
+    text += &comment(
+        "Клавиша командной строки: Ctrl, Alt, Shift, Win и одна клавиша (буква, цифра, F1–F24, Space).",
+        "Command line hotkey: Ctrl, Alt, Shift, Win and one key (a letter, a digit, F1–F24, Space).",
+    );
+    text += &format!("hotkey = \"{}\"\n", l.hotkey.name());
+    text += &comment(
+        "Поиск в интернете: пусто — поисковик браузера по умолчанию,",
+        "Web search: empty uses the default browser's search engine,",
+    );
+    text += &comment(
+        "или адрес, к которому дописывается запрос, например \"https://duckduckgo.com/?q=\".",
+        "or an address the query is appended to, e.g. \"https://duckduckgo.com/?q=\".",
+    );
+    text += &format!("search = {}\n", quoted(&l.search));
+    text
+}
+
+#[cfg(feature = "launcher")]
+pub fn quoted(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 // Formatted by hand: std float formatting adds tens of KB to the binary.
@@ -444,6 +515,39 @@ impl Reader<'_> {
         Ok(())
     }
 
+    #[cfg(feature = "launcher")]
+    fn string(&self, section: &str, key: &str, out: &mut String) -> Result<(), ParseError> {
+        if let Some(entry) = self.table.get(section, key) {
+            *out = entry
+                .value
+                .as_str()
+                .ok_or(ParseError::at(
+                    entry.line,
+                    tr("ожидалась строка в кавычках", "expected a string in quotes"),
+                ))?
+                .to_string();
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "launcher")]
+    fn hotkey(&self, section: &str, key: &str, out: &mut Hotkey) -> Result<(), ParseError> {
+        if let Some(entry) = self.table.get(section, key) {
+            *out = entry
+                .value
+                .as_str()
+                .and_then(Hotkey::parse)
+                .ok_or(ParseError::at(
+                    entry.line,
+                    tr(
+                        "ожидалась клавиша вида \"Ctrl+Alt+Space\"",
+                        "expected a hotkey like \"Ctrl+Alt+Space\"",
+                    ),
+                ))?;
+        }
+        Ok(())
+    }
+
     #[cfg(feature = "orbit")]
     fn satellites(
         &self,
@@ -528,6 +632,19 @@ mod tests {
         assert_eq!(error.line, 2);
         assert!(Config::from_toml("[orbit]\nsatellites = [\"radio\"]\n").is_err());
         assert!(Config::from_toml("[orbit]\nsatellites = [\"clock\", \"clock\"]\n").is_err());
+    }
+
+    #[cfg(feature = "launcher")]
+    #[test]
+    fn reads_launcher_settings() {
+        let text = "[launcher]\nhotkey = \"Win+Shift+K\"\nsearch = \"https://x.org/?q=\"\n";
+        let config = Config::from_toml(text).unwrap();
+        assert_eq!(config.launcher.hotkey.name(), "Shift+Win+K");
+        assert_eq!(config.launcher.search, "https://x.org/?q=");
+        assert!(Config::from_toml("[launcher]\nhotkey = \"Space\"\n").is_err());
+        let mut config = Config::default();
+        config.launcher.search = "a\\b\"c".to_string();
+        assert_eq!(Config::from_toml(&config.to_toml()).unwrap(), config);
     }
 
     #[cfg(feature = "orbit")]

@@ -26,6 +26,8 @@ use windows::Win32::Graphics::Direct3D11::{
 use windows::Win32::Graphics::DirectComposition::{
     DCompositionCreateDevice2, IDCompositionDesktopDevice, IDCompositionSurface,
 };
+#[cfg(feature = "launcher")]
+use windows::Win32::Graphics::DirectWrite::DWRITE_HIT_TEST_METRICS;
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
     DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_METRICS,
@@ -302,6 +304,23 @@ pub struct TextBlock {
     pub height: f32,
 }
 
+impl TextBlock {
+    #[cfg(feature = "launcher")]
+    pub fn caret_x(&self, position: u32) -> f32 {
+        if position == 0 {
+            return 0.0;
+        }
+        let (mut x, mut y) = (0.0, 0.0);
+        let mut metrics = DWRITE_HIT_TEST_METRICS::default();
+        unsafe {
+            let _ =
+                self.layout
+                    .HitTestTextPosition(position - 1, true, &mut x, &mut y, &mut metrics);
+        }
+        x
+    }
+}
+
 pub struct Painter<'a> {
     dc: &'a ID2D1DeviceContext,
     factory: &'a ID2D1Factory1,
@@ -453,6 +472,25 @@ impl Painter<'_> {
             {
                 target.DrawRoundedRectangle(&shape, &brush, border.0, None);
             }
+        }
+    }
+
+    #[cfg(feature = "launcher")]
+    pub fn clip(&self, rect: (f32, f32, f32, f32), draw: impl FnOnce()) {
+        let (x, y, w, h) = rect;
+        let bounds = D2D_RECT_F {
+            left: self.origin.0 + x,
+            top: self.origin.1 + y,
+            right: self.origin.0 + x + w,
+            bottom: self.origin.1 + y + h,
+        };
+        unsafe {
+            self.dc
+                .PushAxisAlignedClip(&bounds, D2D1_ANTIALIAS_MODE_ALIASED);
+        }
+        draw();
+        unsafe {
+            self.dc.PopAxisAlignedClip();
         }
     }
 

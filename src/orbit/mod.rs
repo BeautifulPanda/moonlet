@@ -3,6 +3,8 @@
 // only wakes up to redraw when the data changes.
 
 mod info;
+#[cfg(feature = "launcher")]
+mod launcher;
 #[cfg(feature = "music")]
 mod media;
 mod motion;
@@ -100,6 +102,10 @@ pub struct Orbit {
     volume: Option<volume::Volume>,
     hub: Option<HubView>,
     notice: Option<NoticeView>,
+    #[cfg(feature = "launcher")]
+    launcher: Option<launcher::Launcher>,
+    #[cfg(feature = "launcher")]
+    launcher_view: Option<launcher::view::View>,
     low_warned: Option<u8>,
     host: HWND,
     overlay: IDCompositionVisual2,
@@ -191,6 +197,15 @@ impl Geometry {
         let height =
             (lowest_center + (max_ry + reach).max(layout_radius + below_slot) + margin).ceil();
 
+        #[cfg(feature = "launcher")]
+        let (half_width, height) = {
+            let (panel_width, panel_height) = launcher::view::extent(scale);
+            let top = lowest_center + hover_radius + launcher::view::GAP * scale;
+            (
+                half_width.max((panel_width / 2.0 + margin).ceil()),
+                height.max((top + panel_height + margin).ceil()),
+            )
+        };
         let monitor = screen::rect();
         let width = 2 * half_width as i32;
         let left = monitor.left + (monitor.right - monitor.left - width) / 2;
@@ -309,6 +324,10 @@ impl Orbit {
                 volume: None,
                 hub: None,
                 notice: None,
+                #[cfg(feature = "launcher")]
+                launcher: None,
+                #[cfg(feature = "launcher")]
+                launcher_view: None,
                 low_warned: None,
                 host,
                 gfx,
@@ -338,6 +357,10 @@ impl Orbit {
         if hwnd == self.render_hwnd {
             return (msg == WM_NCHITTEST).then_some(LRESULT(HTTRANSPARENT as isize));
         }
+        #[cfg(feature = "launcher")]
+        if self.launcher.as_ref().is_some_and(|l| l.hwnd == hwnd) {
+            return self.launcher_message(msg, wparam, lparam);
+        }
         if hwnd != self.input_hwnd {
             return None;
         }
@@ -356,7 +379,11 @@ impl Orbit {
             }
             WM_TIMER if wparam.0 == HOVER_TIMER => {
                 self.stop_timer(HOVER_TIMER);
-                if self.tracking_mouse && !self.expanded && !self.hub_open() {
+                if self.tracking_mouse
+                    && !self.expanded
+                    && !self.hub_open()
+                    && !self.launcher_is_open()
+                {
                     let _ = self.expand();
                 }
                 Some(LRESULT(0))
@@ -392,6 +419,14 @@ impl Orbit {
                     unsafe {
                         let _ = self.gfx.dcomp.Commit();
                     }
+                }
+                Some(LRESULT(0))
+            }
+            #[cfg(feature = "launcher")]
+            WM_TIMER if wparam.0 == launcher::GONE_TIMER => {
+                self.stop_timer(launcher::GONE_TIMER);
+                if self.launcher_view.as_ref().is_some_and(|v| v.hiding) {
+                    self.remove_launcher_view();
                 }
                 Some(LRESULT(0))
             }
@@ -555,6 +590,8 @@ impl Orbit {
         let t = now();
         unsafe {
             if hidden {
+                #[cfg(feature = "launcher")]
+                let _ = self.close_launcher(false);
                 self.stop_timer(HOVER_TIMER);
                 self.tracking_mouse = false;
                 self.dismiss_notice(t);
@@ -610,7 +647,7 @@ impl Orbit {
     }
 
     fn show_notice(&mut self, notice: info::Notice) -> Result<()> {
-        if self.hidden || self.expanded || self.hub_open() {
+        if self.hidden || self.expanded || self.hub_open() || self.launcher_is_open() {
             return Ok(());
         }
         self.stop_timer(NOTICE_GONE_TIMER);
@@ -752,6 +789,11 @@ impl Orbit {
     }
 
     pub fn relayout(&mut self) -> Result<()> {
+        #[cfg(feature = "launcher")]
+        {
+            let _ = self.close_launcher(false);
+            self.remove_launcher_view();
+        }
         let old_window = self.geo.window;
         self.geo = Geometry::new(&self.config);
         if self.geo.window != old_window {
@@ -851,6 +893,9 @@ impl Orbit {
     }
 
     fn click(&mut self, point: Vec2) -> Result<()> {
+        if self.launcher_is_open() {
+            return Ok(());
+        }
         let d = point - self.geo.center;
         if d.x * d.x + d.y * d.y <= self.geo.hover_radius * self.geo.hover_radius {
             return if self.hub_open() {
@@ -1062,6 +1107,13 @@ impl Orbit {
         unsafe { GetCursorPos(&mut cursor).is_ok() && WindowFromPoint(cursor) == self.input_hwnd }
     }
 
+    fn launcher_is_open(&self) -> bool {
+        #[cfg(feature = "launcher")]
+        return self.launcher_open();
+        #[cfg(not(feature = "launcher"))]
+        false
+    }
+
     fn stop_timer(&self, id: usize) {
         unsafe {
             let _ = KillTimer(Some(self.input_hwnd), id);
@@ -1170,6 +1222,8 @@ impl Orbit {
                 |a| self.root.SetOpacity(a),
                 |v| self.root.SetOpacity2(v),
             )?;
+            #[cfg(feature = "launcher")]
+            self.bind_launcher()?;
             self.gfx.dcomp.Commit()
         }
     }

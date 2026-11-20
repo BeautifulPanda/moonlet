@@ -118,7 +118,7 @@ pub enum MenuItem {
     Action(u32, &'static str),
     #[cfg_attr(not(feature = "update"), allow(dead_code))]
     Label(u32, String),
-    Check(u32, &'static str, bool),
+    Check(u32, String, bool),
     Radio(u32, &'static str, bool),
     #[cfg_attr(not(feature = "update"), allow(dead_code))]
     Submenu(&'static str, Vec<MenuItem>),
@@ -158,9 +158,14 @@ fn fill(menu: HMENU, items: &[MenuItem]) {
                     };
                     AppendMenuW(menu, flags, *id as usize, &HSTRING::from(text.as_str()))
                 }
-                &MenuItem::Check(id, text, checked) => {
-                    let mark = if checked { MF_CHECKED } else { MF_UNCHECKED };
-                    AppendMenuW(menu, MF_STRING | mark, id as usize, &HSTRING::from(text))
+                MenuItem::Check(id, text, checked) => {
+                    let mark = if *checked { MF_CHECKED } else { MF_UNCHECKED };
+                    AppendMenuW(
+                        menu,
+                        MF_STRING | mark,
+                        *id as usize,
+                        &HSTRING::from(text.as_str()),
+                    )
                 }
                 &MenuItem::Radio(id, text, selected) => {
                     let added = AppendMenuW(menu, MF_STRING, id as usize, &HSTRING::from(text));

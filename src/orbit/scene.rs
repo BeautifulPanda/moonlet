@@ -17,9 +17,9 @@ use crate::lang::tr;
 pub type Rect = (f64, f64, f64, f64);
 
 const HALO_COLOR: u32 = 0x9FB2FF;
-const PANEL_COLOR: u32 = 0x17191F;
-const TEXT_COLOR: u32 = 0xE8EAF0;
-const DIM_TEXT_COLOR: u32 = 0x9AA0AE;
+pub const PANEL_COLOR: u32 = 0x17191F;
+pub const TEXT_COLOR: u32 = 0xE8EAF0;
+pub const DIM_TEXT_COLOR: u32 = 0x9AA0AE;
 
 pub struct Core {
     pub shifts: [IDCompositionTranslateTransform; 2],
@@ -815,7 +815,7 @@ pub fn centered_visual(
     }
 }
 
-fn group(
+pub fn group(
     gfx: &Gfx,
     scale: &IDCompositionScaleTransform,
     shift: &IDCompositionTranslateTransform,
