@@ -1,0 +1,13 @@
+/target/
+*.pdb
+*.exe.bak
+
+# IDE
+/.vs/
+/.vscode/
+/.idea/
+*.swp
+
+# OS
+Thumbs.db
+desktop.ini
