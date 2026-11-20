@@ -2,6 +2,8 @@
 #![windows_subsystem = "windows"]
 
 mod app;
+#[cfg(any(feature = "launcher", all(feature = "settings", feature = "orbit")))]
+mod apps;
 mod autostart;
 #[cfg(any(feature = "launcher", feature = "settings"))]
 mod clipboard;
@@ -27,6 +29,8 @@ mod gfx;
 mod orbit;
 #[cfg(feature = "orbit")]
 mod power;
+#[cfg(feature = "orbit")]
+mod tile;
 
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,

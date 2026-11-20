@@ -1,11 +1,15 @@
+#[cfg(feature = "launcher")]
 use std::path::Path;
 
-use windows::Win32::UI::Shell::{
-    ASSOCF_NONE, ASSOCSTR_EXECUTABLE, AssocQueryStringW, ShellExecuteW,
-};
+use windows::Win32::UI::Shell::ShellExecuteW;
+#[cfg(feature = "launcher")]
+use windows::Win32::UI::Shell::{ASSOCF_NONE, ASSOCSTR_EXECUTABLE, AssocQueryStringW};
 use windows::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, SW_SHOWNORMAL};
-use windows::core::{HSTRING, PCWSTR, PWSTR, w};
+#[cfg(feature = "launcher")]
+use windows::core::PWSTR;
+use windows::core::{HSTRING, PCWSTR, w};
 
+#[cfg(feature = "launcher")]
 const FALLBACK_SEARCH: &str = "https://www.google.com/search?q=";
 
 pub fn open(target: &str, parameters: Option<&str>) {
@@ -27,10 +31,12 @@ pub fn open(target: &str, parameters: Option<&str>) {
     }
 }
 
+#[cfg(feature = "launcher")]
 pub fn launch(path: &Path) {
     open(&path.to_string_lossy(), None);
 }
 
+#[cfg(feature = "launcher")]
 pub fn web_search(query: &str, template: &str) {
     if template.is_empty() && search_in_browser(query) {
         return;
@@ -43,6 +49,7 @@ pub fn web_search(query: &str, template: &str) {
     open(&format!("{base}{}", encode(query)), None);
 }
 
+#[cfg(feature = "launcher")]
 fn search_in_browser(query: &str) -> bool {
     let Some(browser) = default_browser() else {
         return false;
@@ -64,6 +71,7 @@ fn search_in_browser(query: &str) -> bool {
     true
 }
 
+#[cfg(feature = "launcher")]
 fn default_browser() -> Option<String> {
     let mut buffer = [0u16; 520];
     let mut length = buffer.len() as u32;
@@ -84,6 +92,7 @@ fn default_browser() -> Option<String> {
     Some(String::from_utf16_lossy(&buffer[..end]))
 }
 
+#[cfg(feature = "launcher")]
 pub fn encode(text: &str) -> String {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut out = String::with_capacity(text.len() * 3);
@@ -99,7 +108,7 @@ pub fn encode(text: &str) -> String {
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "launcher"))]
 mod tests {
     use super::*;
 

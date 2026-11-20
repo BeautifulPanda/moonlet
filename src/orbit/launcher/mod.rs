@@ -1,7 +1,5 @@
-mod apps;
 mod calc;
 mod search;
-mod shell;
 pub mod view;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
@@ -20,7 +18,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{PCWSTR, Result, w};
 
 use super::motion::{Channel, Target, now};
-use super::{CARD_HIDE_SECS, HOVER_TIMER, Orbit, RETURN_SECS, point_from};
+use super::shell;
+use super::{CARD_HIDE_SECS, Orbit, RETURN_SECS, point_from};
 use crate::app::{CMD_OPEN_CONFIG, CMD_ROTATION, CMD_SCREENSHOT, CMD_SHAPE_CIRCLE, CMD_SHAPE_OVAL};
 use search::{Action, Command, Item};
 
@@ -37,7 +36,7 @@ pub struct Launcher {
     caret: usize,
     items: Vec<Item>,
     selected: usize,
-    apps: Vec<apps::App>,
+    apps: Vec<crate::apps::App>,
     search: String,
     music: bool,
 }
@@ -87,7 +86,7 @@ impl Launcher {
                 caret: 0,
                 items: Vec::new(),
                 selected: 0,
-                apps: apps::scan(),
+                apps: crate::apps::scan(),
                 search: search.to_string(),
                 music,
             })
@@ -130,7 +129,7 @@ impl Orbit {
             return Ok(());
         }
         let t = now();
-        self.stop_timer(HOVER_TIMER);
+        self.disarm_hover();
         self.dismiss_notice(t);
         if self.hub_open() {
             self.close_hub()?;
@@ -161,6 +160,29 @@ impl Orbit {
         self.launcher = Some(launcher);
         self.launcher_view = Some(view);
         self.launcher_changed(true)
+    }
+
+    pub(super) fn run_text(&mut self, text: &str, search: &str) -> Result<()> {
+        let apps = crate::apps::scan();
+        let items = search::suggestions(text, &apps, self.has_music());
+        let Some(item) = items.into_iter().next() else {
+            return Ok(());
+        };
+        match item.action {
+            Action::Launch(path) => shell::launch(&path),
+            Action::Open(url) => shell::open(&url, None),
+            Action::Search(query) => shell::web_search(&query, search),
+            Action::Copy(answer) => crate::clipboard::copy(self.input_hwnd, &answer),
+            Action::Command(command) => self.run_command(command),
+            Action::Complete(text) => {
+                self.toggle_launcher(search)?;
+                if let Some(launcher) = &mut self.launcher {
+                    launcher.insert(&text);
+                }
+                return self.launcher_changed(true);
+            }
+        }
+        Ok(())
     }
 
     fn has_music(&self) -> bool {

@@ -9,6 +9,7 @@ mod launcher;
 mod media;
 mod motion;
 mod scene;
+mod shell;
 #[cfg(feature = "music")]
 mod volume;
 
@@ -40,8 +41,9 @@ use crate::config::{NoticeConfig, OrbitConfig, SatelliteKind};
 use crate::gfx::Gfx;
 use crate::lang::tr;
 use crate::screen;
+use crate::tile::{self, Builtin, Kind, Tile};
 use motion::{Channel, Clock, Ellipse, Tail, Target, Vec2, Wave, now};
-use scene::{CardView, Core, HUB_ITEMS, HubItem, HubView, Labels, NoticeView, Satellite};
+use scene::{CardView, Core, HubTile, HubView, Labels, NoticeView, Satellite, TileIcon};
 #[cfg(feature = "music")]
 use windows::Win32::Graphics::Imaging::IWICBitmap;
 #[cfg(feature = "music")]
@@ -84,6 +86,13 @@ const NOTICE_GONE_TIMER: usize = 6;
 const WM_LBUTTONDOWN: u32 = 0x0201;
 const WM_LBUTTONUP: u32 = 0x0202;
 
+#[derive(Clone, Copy)]
+enum MusicKey {
+    PlayPause,
+    Next,
+    Previous,
+}
+
 const RENDER_CLASS: PCWSTR = w!("MoonletOrbit");
 const INPUT_CLASS: PCWSTR = w!("MoonletOrbitInput");
 
@@ -106,13 +115,18 @@ pub struct Orbit {
     launcher: Option<launcher::Launcher>,
     #[cfg(feature = "launcher")]
     launcher_view: Option<launcher::view::View>,
+    #[cfg(feature = "launcher")]
+    launcher_on: bool,
+    #[cfg(feature = "launcher")]
+    search: String,
     low_warned: Option<u8>,
     host: HWND,
+    labels_holder: IDCompositionVisual2,
     overlay: IDCompositionVisual2,
     geo: Geometry,
     clock: Clock,
     expanded: bool,
-    tracking_mouse: bool,
+    hover_armed: bool,
     root: IDCompositionVisual3,
     fade: Channel,
     hidden: bool,
@@ -186,6 +200,7 @@ impl Geometry {
             (a.max(px(x)), b.max(px(y)))
         });
         let hub_width = (2.0 * 8.0 + 4.0 * 72.0 + 3.0 * 4.0) * scale;
+        let hub_height = (2.0 * 8.0 + 4.0 * 64.0 + 3.0 * 4.0) * scale;
         let half_width = ((max_rx.max(layout_radius) + reach)
             .max(slot_reach + card_width / 2.0)
             .max(hub_width / 2.0)
@@ -196,6 +211,8 @@ impl Geometry {
             ring_radius * HOVER_SCALE + label_gap + label_height + card_gap + card_height;
         let height =
             (lowest_center + (max_ry + reach).max(layout_radius + below_slot) + margin).ceil();
+        let hub_bottom = lowest_center + hover_radius + 6.0 * scale + hub_height + margin;
+        let height = height.max(hub_bottom.ceil());
 
         #[cfg(feature = "launcher")]
         let (half_width, height) = {
@@ -275,11 +292,13 @@ impl Orbit {
             let halo_holder = dcomp.CreateVisual()?;
             let layer = dcomp.CreateVisual()?;
             let disk_holder = dcomp.CreateVisual()?;
+            let labels_holder = dcomp.CreateVisual()?;
             let overlay = dcomp.CreateVisual()?;
             root.AddVisual(&halo_holder, false, None)?;
             root.AddVisual(&layer, true, &halo_holder)?;
             root.AddVisual(&disk_holder, true, &layer)?;
-            root.AddVisual(&overlay, true, &disk_holder)?;
+            root.AddVisual(&labels_holder, true, &disk_holder)?;
+            root.AddVisual(&overlay, true, &labels_holder)?;
 
             let core = scene::build_core(&gfx, &geo, halo_holder, disk_holder)?;
 
@@ -310,11 +329,12 @@ impl Orbit {
                 satellites,
                 labels: None,
                 card: None,
+                labels_holder,
                 overlay,
                 geo,
                 clock: Clock::new(speed, rotating, t),
                 expanded: false,
-                tracking_mouse: false,
+                hover_armed: false,
                 root: root.cast()?,
                 fade: Channel::fixed(1.0),
                 hidden: false,
@@ -328,6 +348,10 @@ impl Orbit {
                 launcher: None,
                 #[cfg(feature = "launcher")]
                 launcher_view: None,
+                #[cfg(feature = "launcher")]
+                launcher_on: false,
+                #[cfg(feature = "launcher")]
+                search: String::new(),
                 low_warned: None,
                 host,
                 gfx,
@@ -366,9 +390,7 @@ impl Orbit {
         }
         match msg {
             WM_MOUSEMOVE => {
-                if !self.tracking_mouse {
-                    self.track_mouse();
-                }
+                self.track_mouse();
                 let point = point_from(lparam);
                 if self.hub_open() {
                     let _ = self.hub_hover(point);
@@ -378,8 +400,8 @@ impl Orbit {
                 Some(LRESULT(0))
             }
             WM_TIMER if wparam.0 == HOVER_TIMER => {
-                self.stop_timer(HOVER_TIMER);
-                if self.tracking_mouse
+                self.disarm_hover();
+                if self.cursor_over_input()
                     && !self.expanded
                     && !self.hub_open()
                     && !self.launcher_is_open()
@@ -431,14 +453,13 @@ impl Orbit {
                 Some(LRESULT(0))
             }
             WM_MOUSELEAVE => {
-                self.tracking_mouse = false;
                 // Changing the window region with SetWindowRgn posts WM_MOUSELEAVE even
                 // though the cursor did not move.
                 if self.cursor_over_input() {
                     self.track_mouse();
                     return Some(LRESULT(0));
                 }
-                self.stop_timer(HOVER_TIMER);
+                self.disarm_hover();
                 if self.hub_open() {
                     let _ = self.close_hub();
                 }
@@ -592,8 +613,7 @@ impl Orbit {
             if hidden {
                 #[cfg(feature = "launcher")]
                 let _ = self.close_launcher(false);
-                self.stop_timer(HOVER_TIMER);
-                self.tracking_mouse = false;
+                self.disarm_hover();
                 self.dismiss_notice(t);
                 if self.expanded {
                     self.expanded = false;
@@ -804,7 +824,8 @@ impl Orbit {
         self.retarget(t, RESHAPE_SECS, false, 0.0);
         if self.hub_open() {
             self.paint_hub()?;
-            let (x, y, w, h) = self.hub_position();
+            let count = self.hub.as_ref().map_or(0, |hub| hub.count);
+            let (x, y, w, h) = self.hub_position(count);
             if let Some(hub) = &mut self.hub {
                 hub.x = hub.x.to(t, 0.0, RESHAPE_SECS, Target::hold(x), false);
                 hub.y = hub.y.to(t, 0.0, RESHAPE_SECS, Target::hold(y), false);
@@ -848,7 +869,7 @@ impl Orbit {
                 )
             })
             .collect();
-        let mut labels = scene::build_labels(&self.gfx, &self.geo, &self.overlay, &items)?;
+        let mut labels = scene::build_labels(&self.gfx, &self.geo, &self.labels_holder, &items)?;
         labels.alpha = Channel::fixed(0.0);
         self.labels = Some(labels);
         self.gfx.trim();
@@ -1089,8 +1110,9 @@ impl Orbit {
             hwndTrack: self.input_hwnd,
             dwHoverTime: 0,
         };
-        self.tracking_mouse = unsafe { TrackMouseEvent(&mut request) }.is_ok();
-        if self.tracking_mouse && !self.expanded {
+        let tracking = unsafe { TrackMouseEvent(&mut request) }.is_ok();
+        if tracking && !self.expanded && !self.hub_open() && !self.hover_armed {
+            self.hover_armed = true;
             unsafe {
                 SetTimer(
                     Some(self.input_hwnd),
@@ -1112,6 +1134,11 @@ impl Orbit {
         return self.launcher_open();
         #[cfg(not(feature = "launcher"))]
         false
+    }
+
+    fn disarm_hover(&mut self) {
+        self.stop_timer(HOVER_TIMER);
+        self.hover_armed = false;
     }
 
     fn stop_timer(&self, id: usize) {
@@ -1331,28 +1358,137 @@ impl Orbit {
         (self.config.radius_x, self.config.radius_y) == OrbitConfig::CIRCLE
     }
 
-    fn hub_items(&self) -> Vec<(char, &'static str)> {
-        HUB_ITEMS
+    fn tile_available(&self, tile: &Tile) -> bool {
+        match tile {
+            Tile::Builtin(Builtin::Launcher) => self.launcher_on(),
+            Tile::Builtin(Builtin::PlayPause | Builtin::Next | Builtin::Previous) => {
+                self.music_on()
+            }
+            Tile::Custom {
+                kind: Kind::Command,
+                ..
+            } => cfg!(feature = "launcher"),
+            _ => true,
+        }
+    }
+
+    fn launcher_on(&self) -> bool {
+        #[cfg(feature = "launcher")]
+        return self.launcher_on;
+        #[cfg(not(feature = "launcher"))]
+        false
+    }
+
+    fn music_on(&self) -> bool {
+        #[cfg(feature = "music")]
+        return self.music.is_some();
+        #[cfg(not(feature = "music"))]
+        false
+    }
+
+    fn hub_tiles(&self) -> Vec<Tile> {
+        let tiles: Vec<Tile> = self
+            .config
+            .tiles
             .iter()
-            .map(|item| match item {
-                HubItem::Screenshot => ('\u{E722}', tr("Скриншот", "Screenshot")),
-                HubItem::Rotation if self.config.rotate => ('\u{E769}', tr("Пауза", "Pause")),
-                HubItem::Rotation => ('\u{E768}', tr("Вращать", "Rotate")),
-                HubItem::Shape => (
-                    '\u{EA3A}',
-                    if self.is_circle() {
-                        tr("Овал", "Oval")
-                    } else {
-                        tr("Круг", "Circle")
+            .filter(|tile| self.tile_available(tile))
+            .cloned()
+            .collect();
+        if tiles.is_empty() {
+            vec![Tile::Builtin(Builtin::Settings)]
+        } else {
+            tiles
+        }
+    }
+
+    fn hub_items(&self) -> Vec<HubTile> {
+        self.hub_tiles()
+            .into_iter()
+            .map(|tile| {
+                let (icon, label) = match tile {
+                    Tile::Builtin(builtin) => {
+                        let (glyph, label) = self.builtin_look(builtin);
+                        (TileIcon::Glyph(glyph), label.to_string())
+                    }
+                    Tile::Custom { kind, name, .. } => match kind.glyph() {
+                        Some(glyph) => (TileIcon::Glyph(glyph), name),
+                        None => (TileIcon::Letter(tile::letter(&name)), name),
                     },
-                ),
-                HubItem::Settings => ('\u{E713}', tr("Настройки", "Settings")),
+                };
+                HubTile { icon, label }
             })
             .collect()
     }
 
-    fn hub_position(&self) -> (f64, f64, f64, f64) {
-        let ((w, h), _) = scene::hub_layout(&self.geo, HUB_ITEMS.len());
+    fn builtin_look(&self, builtin: Builtin) -> (char, &'static str) {
+        match builtin {
+            Builtin::Screenshot => ('\u{E722}', tr("Скриншот", "Screenshot")),
+            Builtin::Rotation if self.config.rotate => ('\u{E769}', tr("Пауза", "Pause")),
+            Builtin::Rotation => ('\u{E768}', tr("Вращать", "Rotate")),
+            Builtin::Shape => (
+                '\u{EA3A}',
+                if self.is_circle() {
+                    tr("Овал", "Oval")
+                } else {
+                    tr("Круг", "Circle")
+                },
+            ),
+            Builtin::Settings => ('\u{E713}', tr("Настройки", "Settings")),
+            Builtin::Launcher => ('\u{E721}', tr("Строка", "Launcher")),
+            Builtin::PlayPause if self.music_playing() => ('\u{E769}', tr("Музыка", "Music")),
+            Builtin::PlayPause => ('\u{E768}', tr("Музыка", "Music")),
+            Builtin::Next => ('\u{E893}', tr("Дальше", "Next")),
+            Builtin::Previous => ('\u{E892}', tr("Назад", "Back")),
+        }
+    }
+
+    fn music_playing(&self) -> bool {
+        #[cfg(feature = "music")]
+        return self
+            .music
+            .as_ref()
+            .and_then(|music| music.track.as_ref())
+            .is_some_and(|track| track.playing);
+        #[cfg(not(feature = "music"))]
+        false
+    }
+
+    pub fn set_hub(&mut self, tiles: &[Tile], launcher: bool, search: &str) {
+        #[cfg(feature = "launcher")]
+        let launcher_same = self.launcher_on == launcher;
+        #[cfg(not(feature = "launcher"))]
+        let launcher_same = {
+            let _ = (launcher, search);
+            true
+        };
+        #[cfg(feature = "launcher")]
+        {
+            self.launcher_on = launcher;
+            self.search = search.to_string();
+        }
+        if self.config.tiles == tiles && launcher_same {
+            return;
+        }
+        self.config.tiles = tiles.to_vec();
+        self.remove_hub();
+    }
+
+    fn remove_hub(&mut self) {
+        if let Some(hub) = self.hub.take() {
+            unsafe {
+                let _ = self.overlay.RemoveVisual(&hub.visual);
+            }
+            drop(hub);
+            self.set_input_region();
+            unsafe {
+                let _ = self.gfx.dcomp.Commit();
+            }
+            self.gfx.trim();
+        }
+    }
+
+    fn hub_position(&self, count: usize) -> (f64, f64, f64, f64) {
+        let ((w, h), _) = scene::hub_layout(&self.geo, count);
         let geo = &self.geo;
         let x = (geo.center.x - w / 2.0)
             .clamp(geo.margin, geo.width() - w - geo.margin)
@@ -1370,10 +1506,19 @@ impl Orbit {
 
     fn open_hub(&mut self) -> Result<()> {
         let t = now();
-        if self.hub.is_none() {
-            self.hub = Some(scene::build_hub(&self.gfx, &self.geo, &self.overlay)?);
+        let count = self.hub_tiles().len();
+        if self.hub.as_ref().is_some_and(|hub| hub.count != count) {
+            self.remove_hub();
         }
-        self.stop_timer(HOVER_TIMER);
+        if self.hub.is_none() {
+            self.hub = Some(scene::build_hub(
+                &self.gfx,
+                &self.geo,
+                &self.overlay,
+                count,
+            )?);
+        }
+        self.disarm_hover();
         self.dismiss_notice(t);
         if self.expanded {
             self.expanded = false;
@@ -1381,7 +1526,7 @@ impl Orbit {
             self.retarget(t, RETURN_SECS, false, 0.0);
         }
         self.paint_hub()?;
-        let (x, y, w, h) = self.hub_position();
+        let (x, y, w, h) = self.hub_position(count);
         let lift = 6.0 * self.geo.scale;
         let hub = self.hub.as_mut().expect("hub was just created");
         hub.x = Channel::fixed(x);
@@ -1417,7 +1562,7 @@ impl Orbit {
     fn hub_tile_at(&self, point: Vec2) -> Option<usize> {
         let hub = self.hub.as_ref()?;
         let (hx, hy, _, _) = hub.rect;
-        let (_, tiles) = scene::hub_layout(&self.geo, HUB_ITEMS.len());
+        let (_, tiles) = scene::hub_layout(&self.geo, hub.count);
         tiles
             .iter()
             .position(|&(x, y, w, h)| inside(point, (hx + x, hy + y, w, h)))
@@ -1434,7 +1579,7 @@ impl Orbit {
         let t = now();
         match tile {
             Some(index) => {
-                let (_, tiles) = scene::hub_layout(&self.geo, HUB_ITEMS.len());
+                let (_, tiles) = scene::hub_layout(&self.geo, hub.count);
                 let (x, y, _, _) = tiles[index];
                 if hub.hovered.is_none() {
                     hub.hl_x = Channel::fixed(x);
@@ -1460,14 +1605,40 @@ impl Orbit {
         let Some(index) = self.hub_tile_at(point) else {
             return Ok(());
         };
-        let item = HUB_ITEMS[index];
-        let command = match item {
-            HubItem::Screenshot => CMD_SCREENSHOT,
-            HubItem::Rotation => CMD_ROTATION,
-            HubItem::Shape => CMD_SHAPE_TOGGLE,
-            HubItem::Settings => CMD_OPEN_CONFIG,
+        let Some(tile) = self.hub_tiles().into_iter().nth(index) else {
+            return Ok(());
         };
-        if matches!(item, HubItem::Screenshot | HubItem::Settings) {
+        let command = match &tile {
+            Tile::Builtin(Builtin::Screenshot) => CMD_SCREENSHOT,
+            Tile::Builtin(Builtin::Rotation) => CMD_ROTATION,
+            Tile::Builtin(Builtin::Shape) => CMD_SHAPE_TOGGLE,
+            Tile::Builtin(Builtin::Settings) => CMD_OPEN_CONFIG,
+            Tile::Builtin(Builtin::PlayPause) => return self.hub_music(MusicKey::PlayPause),
+            Tile::Builtin(Builtin::Next) => return self.hub_music(MusicKey::Next),
+            Tile::Builtin(Builtin::Previous) => return self.hub_music(MusicKey::Previous),
+            #[cfg(feature = "launcher")]
+            Tile::Builtin(Builtin::Launcher) => {
+                let search = self.search.clone();
+                return self.toggle_launcher(&search);
+            }
+            #[cfg(not(feature = "launcher"))]
+            Tile::Builtin(Builtin::Launcher) => return Ok(()),
+            #[cfg(feature = "launcher")]
+            Tile::Custom {
+                kind: Kind::Command,
+                target,
+                ..
+            } => {
+                self.close_hub()?;
+                let search = self.search.clone();
+                return self.run_text(target, &search);
+            }
+            Tile::Custom { target, .. } => {
+                shell::open(target, None);
+                return self.close_hub();
+            }
+        };
+        if matches!(tile, Tile::Builtin(Builtin::Screenshot | Builtin::Settings)) {
             self.close_hub()?;
         }
         unsafe {
@@ -1478,6 +1649,20 @@ impl Orbit {
                 LPARAM(0),
             );
         }
+        Ok(())
+    }
+
+    fn hub_music(&mut self, key: MusicKey) -> Result<()> {
+        #[cfg(feature = "music")]
+        if let Some(music) = &self.music {
+            match key {
+                MusicKey::PlayPause => music.media.toggle(),
+                MusicKey::Next => music.media.next(),
+                MusicKey::Previous => music.media.previous(),
+            }
+        }
+        #[cfg(not(feature = "music"))]
+        let _ = key;
         Ok(())
     }
 
@@ -1649,6 +1834,9 @@ impl Orbit {
 
     fn music_changed(&mut self) -> Result<()> {
         self.refresh(SatelliteKind::Music)?;
+        if self.hub_open() {
+            self.paint_hub()?;
+        }
         let owner = self.card.as_ref().and_then(|card| card.owner);
         if let Some(owner) = owner
             && self.satellites[owner].kind == SatelliteKind::Music

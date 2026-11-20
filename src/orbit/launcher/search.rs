@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use super::apps::App;
 use super::calc;
+use crate::apps::{App, MAX_LENGTH, PREFIX_SCORE, score};
 use crate::lang::{is_english, tr};
 
 pub const MAX_ITEMS: usize = 7;
@@ -286,51 +286,6 @@ fn volume_item(query: &str) -> Option<(i32, Item)> {
         },
         item,
     ))
-}
-
-const PREFIX_SCORE: i32 = 1000;
-const MAX_LENGTH: i32 = 60;
-
-pub fn score(name: &str, query: &str) -> Option<i32> {
-    if query.is_empty() || name.is_empty() {
-        return None;
-    }
-    let length = (name.chars().count() as i32).min(MAX_LENGTH);
-    let query_length = query.chars().count();
-    let points = if name.starts_with(query) {
-        PREFIX_SCORE
-    } else if word_starts(name).any(|i| name[i..].starts_with(query)) {
-        800
-    } else if query_length >= 2 && initials(name).starts_with(query) {
-        700
-    } else if name.contains(query) {
-        600
-    } else if query_length >= 3 && is_subsequence(query, name) {
-        300
-    } else {
-        return None;
-    };
-    Some(points - length)
-}
-
-fn word_starts(name: &str) -> impl Iterator<Item = usize> + '_ {
-    let mut previous = None;
-    name.char_indices().filter_map(move |(i, c)| {
-        let start = c.is_alphanumeric() && !previous.is_some_and(char::is_alphanumeric);
-        previous = Some(c);
-        start.then_some(i)
-    })
-}
-
-fn initials(name: &str) -> String {
-    word_starts(name)
-        .filter_map(|i| name[i..].chars().next())
-        .collect()
-}
-
-fn is_subsequence(query: &str, name: &str) -> bool {
-    let mut rest = name.chars();
-    query.chars().all(|q| rest.any(|c| c == q))
 }
 
 const EN: &str = "qwertyuiop[]asdfghjkl;'zxcvbnm,.`";

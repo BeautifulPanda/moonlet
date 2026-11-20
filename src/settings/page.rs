@@ -10,6 +10,8 @@ use crate::config::{OrbitConfig, SatelliteKind};
 #[cfg(feature = "launcher")]
 use crate::hotkey::Hotkey;
 use crate::lang::{Language, tr};
+#[cfg(feature = "orbit")]
+use crate::tile::{Builtin, Kind, MAX_TILES, Tile};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Section {
@@ -17,7 +19,7 @@ pub enum Section {
     #[cfg(feature = "orbit")]
     Orbit,
     #[cfg(feature = "orbit")]
-    Satellites,
+    Quick,
     #[cfg(feature = "launcher")]
     Launcher,
     About,
@@ -30,7 +32,7 @@ impl Section {
             #[cfg(feature = "orbit")]
             Section::Orbit,
             #[cfg(feature = "orbit")]
-            Section::Satellites,
+            Section::Quick,
             #[cfg(feature = "launcher")]
             Section::Launcher,
             Section::About,
@@ -43,7 +45,7 @@ impl Section {
             #[cfg(feature = "orbit")]
             Section::Orbit => tr("Орбита", "Orbit"),
             #[cfg(feature = "orbit")]
-            Section::Satellites => tr("Спутники", "Satellites"),
+            Section::Quick => tr("Быстрый доступ", "Quick access"),
             #[cfg(feature = "launcher")]
             Section::Launcher => tr("Командная строка", "Command line"),
             Section::About => tr("О программе", "About"),
@@ -56,7 +58,7 @@ impl Section {
             #[cfg(feature = "orbit")]
             Section::Orbit => 0x9FB2FF,
             #[cfg(feature = "orbit")]
-            Section::Satellites => 0x4FD1C5,
+            Section::Quick => 0x4FD1C5,
             #[cfg(feature = "launcher")]
             Section::Launcher => 0xB794F4,
             Section::About => 0x6F7584,
@@ -89,6 +91,22 @@ pub enum Setting {
     HoverDelay,
     #[cfg(feature = "orbit")]
     Satellite(SatelliteKind),
+    #[cfg(feature = "orbit")]
+    Tile(usize),
+    #[cfg(feature = "orbit")]
+    AddKind,
+    #[cfg(feature = "orbit")]
+    AddBuiltin,
+    #[cfg(feature = "orbit")]
+    AppQuery,
+    #[cfg(feature = "orbit")]
+    AppPick,
+    #[cfg(feature = "orbit")]
+    Browse,
+    #[cfg(feature = "orbit")]
+    AddUrl,
+    #[cfg(feature = "orbit")]
+    AddCommand,
     #[cfg(feature = "orbit")]
     NoticeCharger,
     #[cfg(feature = "orbit")]
@@ -140,6 +158,8 @@ pub enum Control {
     Field(String),
     Button(&'static str),
     Order { on: bool, up: bool, down: bool },
+    Tile { up: bool, down: bool },
+    Picks(Vec<String>),
     Info(String),
     Note { strong: bool },
 }
@@ -176,6 +196,17 @@ impl Row {
         }
     }
 
+    fn info(label: &str) -> Self {
+        Self {
+            setting: None,
+            label: label.to_string(),
+            hint: String::new(),
+            control: Control::Info(String::new()),
+            dim: false,
+            warn: false,
+        }
+    }
+
     fn dim(mut self, dim: bool) -> Self {
         self.dim = dim;
         self
@@ -207,32 +238,38 @@ pub struct Ui {
     pub file_error: Option<String>,
     pub has_battery: bool,
     pub news_open: bool,
+    #[cfg(feature = "orbit")]
+    pub add_kind: usize,
+    #[cfg(feature = "orbit")]
+    pub app_query: String,
+    #[cfg(feature = "orbit")]
+    pub apps: Vec<crate::apps::App>,
 }
 
 const NEWS: [(&str, &[(&str, &str)]); 2] = [
+    (
+        "0.4.0",
+        &[
+            (
+                "«Быстрый доступ»: плитки хаба настраиваются — действия Moonlet (скриншот, командная строка, музыка, вращение, форма, настройки) и свои: программа, файл, папка, сайт, команда строки.",
+                "Quick access: hub tiles are yours to choose: Moonlet actions (screenshot, command line, music, rotation, shape, settings) and your own: an app, a file, a folder, a site, a command line text.",
+            ),
+            (
+                "Программу находит поиск по меню «Пуск», файл и папку — окно выбора Windows; порядок — стрелками, лишнее — крестиком.",
+                "Find an app by searching the Start menu, pick a file or folder in the Windows dialog; arrows change the order, the cross removes a tile.",
+            ),
+            (
+                "Карточка спутника больше не прячется под подписью соседнего спутника.",
+                "A satellite card no longer hides under the label of the next satellite.",
+            ),
+        ],
+    ),
     (
         "0.3.1",
         &[(
             "«Что нового» прямо в настройках; клик по уведомлению «Moonlet обновлён» открывает этот список.",
             "\"What's new\" right in the settings; clicking the \"Moonlet updated\" notification opens this list.",
         )],
-    ),
-    (
-        "0.3.0",
-        &[
-            (
-                "Окно настроек вместо Блокнота: язык, автозапуск, обновления, орбита, спутники и их порядок, временные спутники, клавиша и поиск командной строки.",
-                "A settings window instead of Notepad: language, start with Windows, updates, the orbit, satellites and their order, temporary satellites, the command line hotkey and search.",
-            ),
-            (
-                "Правки сразу сохраняются в config.toml, комментарии в файле остаются.",
-                "Changes are saved to config.toml at once; comments in the file are kept.",
-            ),
-            (
-                "В меню трея — «Открыть config.toml» для ручной правки.",
-                "The tray menu has \"Open config.toml\" for editing by hand.",
-            ),
-        ],
     ),
 ];
 
@@ -290,7 +327,7 @@ pub fn rows(section: Section, config: &Config, ui: &Ui) -> Vec<Row> {
         #[cfg(feature = "orbit")]
         Section::Orbit => orbit(&mut rows, config),
         #[cfg(feature = "orbit")]
-        Section::Satellites => satellites(&mut rows, config),
+        Section::Quick => quick(&mut rows, config, ui),
         #[cfg(feature = "launcher")]
         Section::Launcher => launcher(&mut rows, config, ui),
         Section::About => about(&mut rows),
@@ -474,7 +511,7 @@ fn orbit(rows: &mut Vec<Row>, config: &Config) {
 }
 
 #[cfg(feature = "orbit")]
-fn satellites(rows: &mut Vec<Row>, config: &Config) {
+fn quick(rows: &mut Vec<Row>, config: &Config, ui: &Ui) {
     let o = &config.orbit;
     let off = !config.orbit_enabled;
     rows.push(Row::caption(tr(
@@ -506,6 +543,7 @@ fn satellites(rows: &mut Vec<Row>, config: &Config) {
             .dim(off),
         );
     }
+    hub(rows, config, ui);
     let n = &o.notices;
     rows.push(Row::caption(tr(
         "Временные спутники",
@@ -553,6 +591,245 @@ fn satellites(rows: &mut Vec<Row>, config: &Config) {
         )
         .dim(off),
     );
+}
+
+#[cfg(feature = "orbit")]
+fn hub(rows: &mut Vec<Row>, config: &Config, ui: &Ui) {
+    let tiles = &config.orbit.tiles;
+    let off = !config.orbit_enabled;
+    rows.push(Row::caption(tr(
+        "В хабе (клик по ядру) — по порядку",
+        "In the hub (click the core), in order",
+    )));
+    if tiles.is_empty() {
+        rows.push(Row::info(tr(
+            "Пусто — в хабе будут только «Настройки»",
+            "Empty: the hub will only have Settings",
+        )));
+    }
+    for (index, tile) in tiles.iter().enumerate() {
+        rows.push(
+            Row::new(
+                Setting::Tile(index),
+                &tile.title(),
+                &tile_hint(tile, config),
+                Control::Tile {
+                    up: index > 0,
+                    down: index + 1 < tiles.len(),
+                },
+            )
+            .dim(off),
+        );
+    }
+
+    rows.push(Row::caption(tr("Добавить плитку", "Add a tile")));
+    if tiles.len() >= MAX_TILES {
+        rows.push(Row::info(tr(
+            "В хабе уже 16 плиток — больше не поместится",
+            "The hub already has 16 tiles, there is no room for more",
+        )));
+        return;
+    }
+    let kinds = add_kinds();
+    let names = kinds
+        .iter()
+        .map(|kind| kind.map_or(tr("Действие", "Action"), Kind::title))
+        .collect();
+    let picked = ui.add_kind.min(kinds.len() - 1);
+    rows.push(
+        Row::new(
+            Setting::AddKind,
+            "",
+            "",
+            Control::Choice(names, Some(picked)),
+        )
+        .dim(off),
+    );
+    match kinds[picked] {
+        None => {
+            let free = free_builtins(tiles);
+            if free.is_empty() {
+                rows.push(Row::info(tr(
+                    "Все действия Moonlet уже в хабе",
+                    "All Moonlet actions are already in the hub",
+                )));
+            } else {
+                let names = free.iter().map(|b| b.title().to_string()).collect();
+                rows.push(Row::new(Setting::AddBuiltin, "", "", Control::Picks(names)).dim(off));
+            }
+        }
+        Some(Kind::App) => {
+            rows.push(
+                Row::new(
+                    Setting::AppQuery,
+                    tr("Найти программу", "Find an app"),
+                    tr("Программы из меню «Пуск»", "Apps from the Start menu"),
+                    Control::Field(ui.app_query.clone()),
+                )
+                .dim(off),
+            );
+            let found = app_matches(ui);
+            if !found.is_empty() {
+                let names = found.iter().map(|app| app.name.clone()).collect();
+                rows.push(Row::new(Setting::AppPick, "", "", Control::Picks(names)).dim(off));
+            } else if !ui.app_query.trim().is_empty() {
+                rows.push(Row::info(tr(
+                    "Ничего не нашлось — выберите файл программы ниже",
+                    "Nothing found, choose the app file below",
+                )));
+            }
+            rows.push(
+                Row::new(
+                    Setting::Browse,
+                    tr("Нет в «Пуске»?", "Not in the Start menu?"),
+                    "",
+                    Control::Button(tr("Выбрать файл…", "Choose a file…")),
+                )
+                .dim(off),
+            );
+        }
+        Some(Kind::File) => rows.push(
+            Row::new(
+                Setting::Browse,
+                tr(
+                    "Документ, картинка, что угодно",
+                    "A document, a picture, anything",
+                ),
+                tr(
+                    "Откроется программой, как двойным щелчком",
+                    "Opens in its app, like a double click",
+                ),
+                Control::Button(tr("Выбрать файл…", "Choose a file…")),
+            )
+            .dim(off),
+        ),
+        Some(Kind::Folder) => rows.push(
+            Row::new(
+                Setting::Browse,
+                tr("Папка", "Folder"),
+                tr("Откроется в Проводнике", "Opens in File Explorer"),
+                Control::Button(tr("Выбрать папку…", "Choose a folder…")),
+            )
+            .dim(off),
+        ),
+        Some(Kind::Url) => rows.push(
+            Row::new(
+                Setting::AddUrl,
+                tr("Адрес сайта", "Website address"),
+                tr("Enter — добавить", "Enter to add"),
+                Control::Field(String::new()),
+            )
+            .dim(off),
+        ),
+        Some(Kind::Command) => rows.push(
+            Row::new(
+                Setting::AddCommand,
+                tr("Команда строки", "Command line text"),
+                tr("Например, «громкость 30»", "For example, \"volume 30\""),
+                Control::Field(String::new()),
+            )
+            .dim(off),
+        ),
+    }
+}
+
+#[cfg(feature = "orbit")]
+fn tile_hint(tile: &Tile, config: &Config) -> String {
+    let music = cfg!(feature = "music") && config.orbit.satellites.contains(&SatelliteKind::Music);
+    #[cfg(feature = "launcher")]
+    let launcher = config.launcher_enabled;
+    #[cfg(not(feature = "launcher"))]
+    let launcher = false;
+    let text = match tile {
+        Tile::Builtin(Builtin::Launcher) if !launcher => tr(
+            "Командная строка выключена — плитки не видно",
+            "The command line is off, the tile is hidden",
+        ),
+        Tile::Builtin(Builtin::PlayPause | Builtin::Next | Builtin::Previous) if !music => tr(
+            "Видна, когда на орбите есть «Музыка»",
+            "Shown while Music is on the orbit",
+        ),
+        Tile::Custom {
+            kind: Kind::Command,
+            ..
+        } if !cfg!(feature = "launcher") => tr(
+            "Нужна командная строка — её нет в этой сборке",
+            "Needs the command line, missing in this build",
+        ),
+        Tile::Custom { kind, target, name } if *kind != Kind::App && name != target => {
+            return format!("{} · {target}", kind.title());
+        }
+        Tile::Custom { kind, .. } => kind.title(),
+        Tile::Builtin(_) => "",
+    };
+    text.to_string()
+}
+
+#[cfg(feature = "orbit")]
+fn add_kinds() -> Vec<Option<Kind>> {
+    let mut kinds = vec![
+        None,
+        Some(Kind::App),
+        Some(Kind::File),
+        Some(Kind::Folder),
+        Some(Kind::Url),
+    ];
+    if cfg!(feature = "launcher") {
+        kinds.push(Some(Kind::Command));
+    }
+    kinds
+}
+
+#[cfg(feature = "orbit")]
+fn free_builtins(tiles: &[Tile]) -> Vec<Builtin> {
+    Builtin::ALL
+        .iter()
+        .map(|(builtin, _)| *builtin)
+        .filter(|builtin| !tiles.contains(&Tile::Builtin(*builtin)))
+        .collect()
+}
+
+#[cfg(feature = "orbit")]
+const APP_MATCHES: usize = 6;
+
+#[cfg(feature = "orbit")]
+fn app_matches(ui: &Ui) -> Vec<&crate::apps::App> {
+    let query = ui.app_query.trim().to_lowercase();
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let mut found: Vec<(i32, &crate::apps::App)> = ui
+        .apps
+        .iter()
+        .filter_map(|app| {
+            let file = app.file_key.as_deref();
+            let points = crate::apps::score(&app.key, &query)
+                .max(file.and_then(|f| crate::apps::score(f, &query)))?;
+            Some((points, app))
+        })
+        .collect();
+    found.sort_by_key(|(points, _)| std::cmp::Reverse(*points));
+    found
+        .into_iter()
+        .take(APP_MATCHES)
+        .map(|(_, app)| app)
+        .collect()
+}
+
+#[cfg(feature = "orbit")]
+fn add_tile(config: &mut Config, tile: Tile) -> Vec<Write> {
+    let tiles = &mut config.orbit.tiles;
+    let empty = matches!(&tile, Tile::Custom { target, .. } if target.trim().is_empty());
+    if empty || tiles.len() >= MAX_TILES || tiles.contains(&tile) {
+        return Vec::new();
+    }
+    tiles.push(tile);
+    vec![tiles_write(tiles)]
+}
+
+#[cfg(feature = "orbit")]
+fn tiles_write(tiles: &[Tile]) -> Write {
+    write("hub", "tiles", crate::config::tiles_value(tiles))
 }
 
 #[cfg(feature = "orbit")]
@@ -660,6 +937,7 @@ pub enum Change {
     #[cfg(feature = "launcher")]
     Hotkey(Hotkey),
     Move(isize),
+    Remove,
 }
 
 #[derive(Debug, PartialEq)]
@@ -782,6 +1060,78 @@ pub fn apply(config: &mut Config, ui: &mut Ui, setting: Setting, change: Change)
             )]
         }
         #[cfg(feature = "orbit")]
+        (Setting::Tile(index), Move(delta)) => {
+            let tiles = &mut config.orbit.tiles;
+            let to = index as isize + delta;
+            if index >= tiles.len() || to < 0 || to as usize >= tiles.len() {
+                return Vec::new();
+            }
+            tiles.swap(index, to as usize);
+            vec![tiles_write(tiles)]
+        }
+        #[cfg(feature = "orbit")]
+        (Setting::Tile(index), Remove) => {
+            let tiles = &mut config.orbit.tiles;
+            if index >= tiles.len() {
+                return Vec::new();
+            }
+            tiles.remove(index);
+            vec![tiles_write(tiles)]
+        }
+        #[cfg(feature = "orbit")]
+        (Setting::AddKind, Pick(i)) => {
+            ui.add_kind = i;
+            if add_kinds().get(i) == Some(&Some(Kind::App)) && ui.apps.is_empty() {
+                ui.apps = crate::apps::scan();
+            }
+            Vec::new()
+        }
+        #[cfg(feature = "orbit")]
+        (Setting::AddBuiltin, Pick(i)) => match free_builtins(&config.orbit.tiles).get(i) {
+            Some(&builtin) => add_tile(config, Tile::Builtin(builtin)),
+            None => Vec::new(),
+        },
+        #[cfg(feature = "orbit")]
+        (Setting::AppQuery, Text(text)) => {
+            ui.app_query = text;
+            Vec::new()
+        }
+        #[cfg(feature = "orbit")]
+        (Setting::AppPick, Pick(i)) => {
+            let Some(app) = app_matches(ui).get(i).copied() else {
+                return Vec::new();
+            };
+            let tile = Tile::Custom {
+                kind: Kind::App,
+                target: app.path.to_string_lossy().into_owned(),
+                name: app.name.clone(),
+            };
+            ui.app_query.clear();
+            add_tile(config, tile)
+        }
+        #[cfg(feature = "orbit")]
+        (Setting::Browse, Text(path)) => match add_kinds().get(ui.add_kind).copied().flatten() {
+            Some(kind @ (Kind::App | Kind::File | Kind::Folder)) => {
+                add_tile(config, Tile::custom(kind, &path))
+            }
+            _ => Vec::new(),
+        },
+        #[cfg(feature = "orbit")]
+        (Setting::AddUrl, Text(text)) => {
+            let text = text.trim();
+            if text.is_empty() {
+                return Vec::new();
+            }
+            let url = if text.contains("://") {
+                text.to_string()
+            } else {
+                format!("https://{text}")
+            };
+            add_tile(config, Tile::custom(Kind::Url, &url))
+        }
+        #[cfg(feature = "orbit")]
+        (Setting::AddCommand, Text(text)) => add_tile(config, Tile::custom(Kind::Command, &text)),
+        #[cfg(feature = "orbit")]
         (Setting::NoticeCharger, Toggle) => {
             let n = &mut config.orbit.notices;
             n.charger = !n.charger;
@@ -868,6 +1218,17 @@ mod tests {
             (Setting::NoticeLowBattery, Change::Toggle),
             (Setting::NoticeTrack, Change::Toggle),
             (Setting::NoticeSeconds, Change::Value(7.0)),
+            (Setting::Tile(2), Change::Move(-1)),
+            (Setting::Tile(0), Change::Remove),
+            (Setting::AddKind, Change::Pick(4)),
+            (Setting::AddUrl, Change::Text("github.com".into())),
+            (Setting::AddKind, Change::Pick(3)),
+            (
+                Setting::Browse,
+                Change::Text("C:\\Users\\Me\\Downloads".into()),
+            ),
+            (Setting::AddKind, Change::Pick(0)),
+            (Setting::AddBuiltin, Change::Pick(0)),
         ]);
         #[cfg(feature = "update")]
         steps.push((Setting::UpdateMode, Change::Pick(1)));
@@ -925,6 +1286,90 @@ mod tests {
         );
         let order = satellite_order(&kinds(&config));
         assert_eq!(order[2], SatelliteKind::Music);
+    }
+
+    #[cfg(feature = "orbit")]
+    #[test]
+    fn hub_tiles_are_added_moved_and_removed() {
+        let mut config = Config::default();
+        let mut ui = Ui::default();
+        let names =
+            |c: &Config| -> Vec<String> { c.orbit.tiles.iter().map(Tile::to_text).collect() };
+        apply(&mut config, &mut ui, Setting::AddBuiltin, Change::Pick(0));
+        assert_eq!(names(&config)[4], "launcher");
+        let before = config.orbit.tiles.len();
+        apply(&mut config, &mut ui, Setting::AddKind, Change::Pick(4));
+        apply(
+            &mut config,
+            &mut ui,
+            Setting::AddUrl,
+            Change::Text("x.org".into()),
+        );
+        apply(
+            &mut config,
+            &mut ui,
+            Setting::AddUrl,
+            Change::Text("x.org".into()),
+        );
+        assert_eq!(config.orbit.tiles.len(), before + 1);
+        assert_eq!(names(&config)[before], "url:https://x.org");
+        apply(&mut config, &mut ui, Setting::AddKind, Change::Pick(4));
+        assert!(
+            apply(
+                &mut config,
+                &mut ui,
+                Setting::AddUrl,
+                Change::Text("  ".into())
+            )
+            .is_empty()
+        );
+        apply(
+            &mut config,
+            &mut ui,
+            Setting::Tile(before),
+            Change::Move(-1),
+        );
+        assert_eq!(names(&config)[before - 1], "url:https://x.org");
+        assert!(apply(&mut config, &mut ui, Setting::Tile(0), Change::Move(-1)).is_empty());
+        apply(&mut config, &mut ui, Setting::Tile(0), Change::Remove);
+        assert_eq!(names(&config)[0], "rotation");
+        apply(&mut config, &mut ui, Setting::AddKind, Change::Pick(4));
+        for i in 0..20 {
+            apply(
+                &mut config,
+                &mut ui,
+                Setting::AddUrl,
+                Change::Text(format!("s{i}.org")),
+            );
+        }
+        assert_eq!(config.orbit.tiles.len(), MAX_TILES);
+        let rows = rows(Section::Quick, &config, &ui);
+        assert!(!rows.iter().any(|row| row.setting == Some(Setting::AddKind)));
+    }
+
+    #[cfg(feature = "orbit")]
+    #[test]
+    fn apps_are_found_by_name() {
+        let mut ui = Ui::default();
+        let app = |name: &str, path: &str| crate::apps::App {
+            name: name.to_string(),
+            key: name.to_lowercase(),
+            file_key: None,
+            path: path.into(),
+        };
+        ui.apps = vec![app("Telegram", "t.lnk"), app("Блокнот", "n.lnk")];
+        ui.app_query = "тел".into();
+        assert!(app_matches(&ui).is_empty());
+        ui.app_query = "tel".into();
+        assert_eq!(app_matches(&ui)[0].name, "Telegram");
+        let mut config = Config::default();
+        ui.add_kind = 1;
+        apply(&mut config, &mut ui, Setting::AppPick, Change::Pick(0));
+        assert_eq!(
+            config.orbit.tiles.last().unwrap().to_text(),
+            "app:t.lnk|Telegram"
+        );
+        assert!(ui.app_query.is_empty());
     }
 
     #[cfg(feature = "launcher")]

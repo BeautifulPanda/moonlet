@@ -501,20 +501,15 @@ impl CardView {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum HubItem {
-    Screenshot,
-    Rotation,
-    Shape,
-    Settings,
+pub enum TileIcon {
+    Glyph(char),
+    Letter(char),
 }
 
-pub const HUB_ITEMS: [HubItem; 4] = [
-    HubItem::Screenshot,
-    HubItem::Rotation,
-    HubItem::Shape,
-    HubItem::Settings,
-];
+pub struct HubTile {
+    pub icon: TileIcon,
+    pub label: String,
+}
 
 pub fn hub_layout(geo: &Geometry, count: usize) -> ((f64, f64), Vec<Rect>) {
     let s = geo.scale;
@@ -554,11 +549,17 @@ pub struct HubView {
     pub open: bool,
     pub rect: (f64, f64, f64, f64),
     pub hovered: Option<usize>,
+    pub count: usize,
 }
 
-pub fn build_hub(gfx: &Gfx, geo: &Geometry, parent: &IDCompositionVisual2) -> Result<HubView> {
+pub fn build_hub(
+    gfx: &Gfx,
+    geo: &Geometry,
+    parent: &IDCompositionVisual2,
+    count: usize,
+) -> Result<HubView> {
     unsafe {
-        let ((width, height), tiles) = hub_layout(geo, HUB_ITEMS.len());
+        let ((width, height), tiles) = hub_layout(geo, count);
         let (tile_w, tile_h) = (tiles[0].2, tiles[0].3);
         let holder = gfx.dcomp.CreateVisual()?;
         let shift = gfx.dcomp.CreateTranslateTransform()?;
@@ -600,17 +601,28 @@ pub fn build_hub(gfx: &Gfx, geo: &Geometry, parent: &IDCompositionVisual2) -> Re
             open: false,
             rect: (0.0, 0.0, width, height),
             hovered: None,
+            count,
         })
     }
 }
 
 impl HubView {
-    pub fn paint(&self, gfx: &Gfx, geo: &Geometry, items: &[(char, &str)]) -> Result<()> {
+    pub fn paint(&self, gfx: &Gfx, geo: &Geometry, items: &[HubTile]) -> Result<()> {
         let s = geo.scale as f32;
         let ((width, height), tiles) = hub_layout(geo, items.len());
+        let label_width = tiles.first().map_or(0.0, |t| t.2 as f32) - 8.0 * s;
         let blocks: Vec<_> = items
             .iter()
-            .map(|&(glyph, label)| (gfx.icon(glyph, 20.0 * s), gfx.text(label, 11.0 * s, false)))
+            .map(|item| {
+                let icon = match item.icon {
+                    TileIcon::Glyph(glyph) => gfx.icon(glyph, 20.0 * s).map(|b| (b, false)),
+                    TileIcon::Letter(letter) => gfx
+                        .text(letter.encode_utf8(&mut [0; 4]), 12.0 * s, false)
+                        .map(|b| (b, true)),
+                };
+                let label = gfx.text_fit(&item.label, 11.0 * s, false, Some(label_width));
+                (icon, label)
+            })
             .collect();
         gfx.draw(&self.surface, width as u32, height as u32, |p| {
             p.rounded_rect(
@@ -627,13 +639,30 @@ impl HubView {
                     gfx::rgb(0xFFFFFF, 0.04),
                     (0.0, gfx::rgb(0, 0.0)),
                 );
-                if let Ok(icon) = icon {
-                    p.text(
+                match icon {
+                    Ok((icon, false)) => p.text(
                         icon,
                         x + (w - icon.width) / 2.0,
                         y + 12.0 * s,
                         gfx::rgb(TEXT_COLOR, 1.0),
-                    );
+                    ),
+                    Ok((letter, true)) => {
+                        let d = 21.0 * s;
+                        let (cx, cy) = (x + (w - d) / 2.0, y + 11.5 * s);
+                        p.rounded_rect(
+                            (cx, cy, d, d),
+                            d / 2.0,
+                            gfx::rgb(0, 0.0),
+                            (1.3 * s, gfx::rgb(TEXT_COLOR, 1.0)),
+                        );
+                        p.text(
+                            letter,
+                            (cx + (d - letter.width) / 2.0).round(),
+                            (cy + (d - letter.height) / 2.0).round(),
+                            gfx::rgb(TEXT_COLOR, 1.0),
+                        );
+                    }
+                    Err(_) => {}
                 }
                 if let Ok(label) = label {
                     p.text(

@@ -13,7 +13,7 @@ with satellites slowly circling around it, one satellite per feature. It is
 written in Rust directly on Win32, Direct2D and DirectComposition — no web
 views, no GUI frameworks.
 
-- **Light.** One ~580 KB `moonlet.exe`, about 9 MB of RAM.
+- **Light.** One ~680 KB `moonlet.exe`, about 9 MB of RAM.
 - **Quiet.** No polling: the process sleeps until Windows reports an event.
   Animations run inside DWM, so Moonlet itself uses 0% CPU while things move.
 - **Kind to the battery.** Animations stop on battery power (can be turned
@@ -34,8 +34,10 @@ views, no GUI frameworks.
   Hover a satellite to see its card: date and time, battery details, or the
   current track with cover art, playback buttons and system volume. The mouse
   wheel over the music satellite changes the volume.
-- **Click the core** to open the hub: screenshot of an area, pause the orbit,
-  circle or oval orbit, settings.
+- **Click the core** to open the hub: Moonlet actions (area screenshot, command
+  line, music, pause the orbit, circle or oval, settings) and your own tiles —
+  apps, files, folders, websites and command line texts like `volume 30`.
+  Pick them and their order in Settings → Quick access.
 - **Temporary satellites.** Plugging the charger in or out and a low battery
   (20% and 10%) send a small copy of the battery satellite out with a short
   note. A new song can do the same (off by default).
@@ -68,9 +70,10 @@ publisher the first time.
 
 Tray menu → "Open settings" (or the hub tile, or `settings` in the command
 line) opens the settings window: language, start with Windows, updates, orbit
-shape and speed, which satellites to show and in what order, temporary
-satellites, the command line hotkey and web search. Every change applies at
-once. The window is a separate process, so closing it frees all of its memory.
+shape and speed, quick access (which satellites sit on the orbit and which
+tiles are in the hub, in what order; apps are found by searching the Start
+menu), temporary satellites, the command line hotkey and web search. Every
+change applies at once. The window is a separate process, so closing it frees all of its memory.
 "What's new" in General → Updates lists the changes of the installed version.
 
 ![Settings](docs/settings.png)
@@ -79,13 +82,18 @@ Everything is stored in `%APPDATA%\Moonlet\config.toml` ("Open config.toml"
 in the tray menu). The file is commented and can be edited by hand, including
 sizes that the window does not show; changes apply as soon as it is saved.
 
-A `config.toml` created by an older version keeps working; to change the
-command line settings, add
+A `config.toml` created by an older version keeps working; missing sections
+take their defaults, for example
 
 ```toml
 [launcher]
 hotkey = "Ctrl+Alt+Space"
 search = ""   # empty: the browser's engine, or e.g. "https://duckduckgo.com/?q="
+
+[hub]
+# Moonlet actions: screenshot, launcher, play, next, previous, rotation, shape, settings.
+# Own tiles: "app:path", "file:path", "folder:path", "url:address", "cmd:text"; a name after |.
+tiles = ["screenshot", "launcher", "url:https://github.com|GitHub", "settings"]
 ```
 
 ### Updates
@@ -132,7 +140,7 @@ Moonlet добавляет поверх Windows небольшой тихий с
 по одному на функцию. Написан на Rust прямо на Win32, Direct2D и
 DirectComposition — без веб-движков и GUI-фреймворков.
 
-- **Лёгкий.** Один `moonlet.exe` около 580 КБ, около 9 МБ памяти.
+- **Лёгкий.** Один `moonlet.exe` около 680 КБ, около 9 МБ памяти.
 - **Тихий.** Никакого опроса: процесс спит, пока Windows не сообщит о событии.
   Анимации выполняет DWM, сам Moonlet в это время не тратит CPU.
 - **Бережёт батарею.** Анимации останавливаются от батареи (можно отключить)
@@ -153,8 +161,10 @@ DirectComposition — без веб-движков и GUI-фреймворков
   Наведение на спутник открывает карточку: дата и время, подробности о батарее
   или текущий трек с обложкой, кнопками и громкостью. Колёсико над спутником
   музыки меняет громкость.
-- **Клик по ядру** — хаб: скриншот области, пауза орбиты, круг или овал,
-  настройки.
+- **Клик по ядру** — хаб: действия Moonlet (скриншот области, командная
+  строка, музыка, пауза орбиты, круг или овал, настройки) и свои плитки —
+  программы, файлы, папки, сайты и команды строки вроде `громкость 30`.
+  Что и в каком порядке — в настройках, раздел «Быстрый доступ».
 - **Временные спутники.** Подключили или отключили зарядку, заряд упал до 20%
   и 10% — из спутника батареи вылетает его маленькая копия с короткой надписью.
   Так же можно показывать новый трек (по умолчанию выключено).
@@ -185,8 +195,9 @@ DirectComposition — без веб-движков и GUI-фреймворков
 
 Меню трея → «Открыть настройки» (или плитка хаба, или `настройки` в командной
 строке) открывает окно настроек: язык, автозапуск, обновления, форма и скорость
-орбиты, какие спутники и в каком порядке, временные спутники, клавиша и поиск
-командной строки. Каждая правка применяется сразу. Окно — отдельный процесс:
+орбиты, быстрый доступ (какие спутники на орбите и какие плитки в хабе, в каком
+порядке; программу можно найти поиском по «Пуску»), временные спутники,
+клавиша и поиск командной строки. Каждая правка применяется сразу. Окно — отдельный процесс:
 закрыли его, и вся его память освободилась. «Что нового» в «Общих» → «Обновления»
 показывает изменения установленной версии.
 
@@ -194,13 +205,18 @@ DirectComposition — без веб-движков и GUI-фреймворков
 трея). Файл с пояснениями, его можно править руками, в том числе размеры,
 которых нет в окне; изменения применяются сразу после сохранения.
 
-`config.toml` от прежней версии работает как есть; чтобы поменять настройки
-командной строки, допишите
+`config.toml` от прежней версии работает как есть: для разделов, которых
+в нём нет, действуют значения по умолчанию, например
 
 ```toml
 [launcher]
 hotkey = "Ctrl+Alt+Space"
 search = ""   # пусто — поисковик браузера, или, например, "https://duckduckgo.com/?q="
+
+[hub]
+# Действия Moonlet: screenshot, launcher, play, next, previous, rotation, shape, settings.
+# Свои плитки: "app:путь", "file:путь", "folder:путь", "url:адрес", "cmd:текст"; имя — после |.
+tiles = ["screenshot", "launcher", "url:https://github.com|GitHub", "settings"]
 ```
 
 ### Обновления

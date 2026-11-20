@@ -80,6 +80,7 @@ pub enum Part {
     Option(usize),
     Up,
     Down,
+    Remove,
     Slider,
     Field,
     Hotkey,
@@ -565,8 +566,13 @@ impl View {
                 _ if row.hint.is_empty() => ROW_H,
                 _ => ROW_HINT_H,
             };
+            let base = match &row.control {
+                Control::Picks(_) if row.label.is_empty() => 8.0,
+                _ => base,
+            };
             let h = match &row.control {
                 Control::List(options, _) => base + options.len() as f32 * OPTION_H,
+                Control::Picks(options) => base + options.len() as f32 * OPTION_H,
                 _ => base,
             };
             let mut h = (h * s).round();
@@ -612,7 +618,25 @@ impl View {
                         x += w + gap;
                     }
                 }
+                Control::Tile { .. } => {
+                    let remove = right - ch;
+                    let down = remove - 2.0 * s - ch;
+                    let up = down - 2.0 * s - ch;
+                    parts.push((Part::Up, (up, cy - ch / 2.0, ch, ch)));
+                    parts.push((Part::Down, (down, cy - ch / 2.0, ch, ch)));
+                    parts.push((Part::Remove, (remove, cy - ch / 2.0, ch, ch)));
+                }
                 Control::List(options, _) => {
+                    let top = y + (base * s).round() - (4.0 * s).round();
+                    for i in 0..options.len() {
+                        let oy = (top + i as f32 * OPTION_H * s).round();
+                        parts.push((
+                            Part::Option(i),
+                            (gx + 6.0 * s, oy, gw - 12.0 * s, (OPTION_H * s).round()),
+                        ));
+                    }
+                }
+                Control::Picks(options) => {
                     let top = y + (base * s).round() - (4.0 * s).round();
                     for i in 0..options.len() {
                         let oy = (top + i as f32 * OPTION_H * s).round();
@@ -654,7 +678,9 @@ impl View {
                 Control::Toggle(_) => right - 36.0 * s,
                 Control::Slider(_) => track.0 - 64.0 * s,
                 Control::Info(text) => right - text_width(text, 12.0 * s),
-                Control::List(..) | Control::Header | Control::Note { .. } => right,
+                Control::List(..) | Control::Picks(_) | Control::Header | Control::Note { .. } => {
+                    right
+                }
                 _ => parts.first().map_or(right, |(_, r)| r.0),
             };
             let text_max = control_left - 16.0 * s - (gx + INSET * s);
@@ -953,6 +979,12 @@ impl RowText {
             Control::Choice(options, _) | Control::List(options, _) => {
                 options.iter().map(|o| o.to_string()).collect()
             }
+            Control::Picks(options) => options.clone(),
+            Control::Tile { .. } => vec![
+                '\u{E70E}'.to_string(),
+                '\u{E70D}'.to_string(),
+                '\u{E711}'.to_string(),
+            ],
             Control::Button(label) => vec![label.to_string()],
             Control::Hotkey(name) => vec![
                 name.clone(),
@@ -970,7 +1002,12 @@ impl RowText {
         let control = texts
             .iter()
             .filter_map(|text| match row.control {
-                Control::Order { .. } => gfx.icon(text.chars().next()?, 10.0 * s).ok(),
+                Control::Order { .. } | Control::Tile { .. } => {
+                    gfx.icon(text.chars().next()?, 10.0 * s).ok()
+                }
+                Control::Picks(_) => gfx
+                    .text_fit(text, 12.0 * s, false, Some(b.group.2 - 60.0 * s))
+                    .ok(),
                 _ => gfx.text(text, 12.0 * s, false).ok(),
             })
             .collect();
@@ -1125,6 +1162,52 @@ fn paint_row(
                 if let Some(icon) = text.control.get(icon) {
                     let color = if enabled { c(TEXT, 1.0) } else { c(FAINT, 0.5) };
                     centered(p, icon, r, color);
+                }
+            }
+        }
+        Control::Tile { up, down } => {
+            for (i, (part, enabled)) in [(Part::Up, *up), (Part::Down, *down), (Part::Remove, true)]
+                .into_iter()
+                .enumerate()
+            {
+                let Some(&(_, r)) = b.parts.iter().find(|(p, _)| *p == part) else {
+                    continue;
+                };
+                if enabled && hover == Some(part) {
+                    p.rounded_rect(r, 5.0 * s, c(CONTROL_HOVER, 1.0), none());
+                }
+                if let Some(icon) = text.control.get(i) {
+                    let color = if !enabled {
+                        c(FAINT, 0.5)
+                    } else if part == Part::Remove && hover == Some(part) {
+                        c(WARN, 1.0)
+                    } else {
+                        c(TEXT, 1.0)
+                    };
+                    centered(p, icon, r, color);
+                }
+            }
+        }
+        Control::Picks(_) => {
+            let plus = gfx.icon('\u{E710}', 10.0 * s).ok();
+            for (i, (_, r)) in b.parts.iter().enumerate() {
+                let hovered = hover == Some(Part::Option(i));
+                if hovered {
+                    p.rounded_rect(*r, 6.0 * s, c(HOVER, 1.0), none());
+                }
+                let ry = r.1 + r.3 / 2.0;
+                let color = if hovered { c(MOON, 1.0) } else { c(DIM, 1.0) };
+                if let Some(plus) = &plus {
+                    centered(p, plus, (r.0 + 6.0 * s, r.1, 20.0 * s, r.3), color);
+                }
+                if let Some(label) = text.control.get(i) {
+                    let color = if hovered { c(TEXT, 1.0) } else { c(DIM, 1.0) };
+                    p.text(
+                        label,
+                        (r.0 + 34.0 * s).round(),
+                        (ry - label.height / 2.0).round(),
+                        color,
+                    );
                 }
             }
         }

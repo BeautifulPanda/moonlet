@@ -640,6 +640,7 @@ impl App {
                 self.config.launcher_enabled = on;
                 self.save("modules", "launcher", yes_no(on));
                 self.sync_hotkey();
+                self.sync_hub();
             }
             #[cfg(feature = "update")]
             CMD_UPDATE_AUTO => self.set_update_mode(UpdateMode::Auto),
@@ -786,7 +787,22 @@ impl App {
                 let _ = orbit.set_radii(rx, ry);
             }
         }
+        self.sync_hub();
         self.update_rotation();
+    }
+
+    #[cfg(feature = "orbit")]
+    fn sync_hub(&mut self) {
+        #[cfg(feature = "launcher")]
+        let (launcher, search) = (
+            self.config.launcher_enabled,
+            self.config.launcher.search.as_str(),
+        );
+        #[cfg(not(feature = "launcher"))]
+        let (launcher, search) = (false, "");
+        if let Some(orbit) = &mut self.orbit {
+            orbit.set_hub(&self.config.orbit.tiles, launcher, search);
+        }
     }
 
     #[cfg(feature = "orbit")]
@@ -813,6 +829,7 @@ impl App {
             let _ = orbit.set_hidden(true);
         }
         self.orbit = Some(orbit);
+        self.sync_hub();
         Ok(())
     }
 

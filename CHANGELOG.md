@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0] - 2026-11-20
+
+- Quick access: the hub tiles are configurable. Settings → Quick access lists
+  the satellites on the orbit and the hub tiles in order (arrows move a tile,
+  the cross removes it) and adds new ones:
+  - Moonlet actions: area screenshot, command line, music play/pause, next and
+    previous track, rotation, orbit shape, settings;
+  - your own tiles: an app (search the Start menu or pick any file), a file,
+    a folder (Windows file dialog), a website, or a command line text that runs
+    as if typed and confirmed with Enter (`volume 30`, `telegram`).
+  - Apps and files show the first letter of their name, folders, sites and
+    commands a matching icon. Up to 16 tiles; long names are shortened.
+  - In `config.toml` the tiles are a list in `[hub]`:
+    `tiles = ["screenshot", "app:C:\\Apps\\Telegram.lnk", "url:https://github.com|GitHub"]`.
+- A satellite card is always drawn above the layout labels; before, the label
+  of the next satellite could cover it.
+
 ## [0.3.1] - 2026-11-20
 
 - "What's new" in the settings window (General → Updates): the changes of

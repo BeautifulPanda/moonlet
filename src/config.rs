@@ -8,6 +8,8 @@ use windows::core::{HSTRING, PCWSTR, w};
 #[cfg(feature = "launcher")]
 use crate::hotkey::Hotkey;
 use crate::lang::{Language, tr};
+#[cfg(feature = "orbit")]
+use crate::tile::{MAX_TILES, Tile};
 use crate::toml::{self, ParseError, Table};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -82,6 +84,7 @@ pub struct OrbitConfig {
     pub hover_padding: f32,
     pub satellites: Vec<SatelliteKind>,
     pub notices: NoticeConfig,
+    pub tiles: Vec<Tile>,
 }
 
 #[cfg(feature = "orbit")]
@@ -147,6 +150,7 @@ impl OrbitConfig {
         same.radius_y = self.radius_y;
         same.rotate = self.rotate;
         same.notices = self.notices;
+        same.tiles = self.tiles.clone();
         *self != same
     }
 }
@@ -172,6 +176,7 @@ impl Default for OrbitConfig {
                 SatelliteKind::Battery,
             ],
             notices: NoticeConfig::default(),
+            tiles: crate::tile::defaults(),
         }
     }
 }
@@ -278,6 +283,7 @@ impl Config {
             read.bool("notices", "low_battery", &mut n.low_battery)?;
             read.bool("notices", "track", &mut n.track)?;
             read.number("notices", "seconds", 1.0, 30.0, &mut n.seconds)?;
+            read.tiles("hub", "tiles", &mut o.tiles)?;
         }
         #[cfg(feature = "launcher")]
         {
@@ -375,6 +381,7 @@ impl Config {
                 .collect();
             text += &format!("satellites = [{}]\n\n", names.join(", "));
             text += &notices_toml(&o.notices);
+            text += &hub_toml(&o.tiles);
         }
         #[cfg(feature = "launcher")]
         {
@@ -424,6 +431,43 @@ fn notices_toml(n: &NoticeConfig) -> String {
     text
 }
 
+#[cfg(feature = "orbit")]
+fn hub_toml(tiles: &[Tile]) -> String {
+    let mut text = String::from(
+        "
+[hub]
+",
+    );
+    text += &comment(
+        "Плитки хаба (клик по ядру) по порядку, не больше 16. Действия Moonlet:",
+        "Hub tiles (click the core) in order, up to 16. Moonlet actions:",
+    );
+    text += &comment(
+        "\"screenshot\", \"launcher\", \"play\", \"next\", \"previous\", \"rotation\", \"shape\", \"settings\".",
+        "\"screenshot\", \"launcher\", \"play\", \"next\", \"previous\", \"rotation\", \"shape\", \"settings\".",
+    );
+    text += &comment(
+        "Свои плитки: \"app:путь\", \"file:путь\", \"folder:путь\", \"url:адрес\", \"cmd:команда строки\";",
+        "Your own tiles: \"app:path\", \"file:path\", \"folder:path\", \"url:address\", \"cmd:command line text\";",
+    );
+    text += &comment(
+        "своё имя — после |, например \"url:https://github.com|GitHub\". В путях \\ пишется дважды.",
+        "a custom name goes after |, e.g. \"url:https://github.com|GitHub\". Write \\ twice in paths.",
+    );
+    text += &format!(
+        "tiles = {}
+",
+        tiles_value(tiles)
+    );
+    text
+}
+
+#[cfg(feature = "orbit")]
+pub fn tiles_value(tiles: &[Tile]) -> String {
+    let items: Vec<String> = tiles.iter().map(|t| quoted(&t.to_text())).collect();
+    format!("[{}]", items.join(", "))
+}
+
 #[cfg(feature = "launcher")]
 fn launcher_toml(l: &LauncherConfig) -> String {
     let mut text = String::from("\n[launcher]\n");
@@ -444,7 +488,7 @@ fn launcher_toml(l: &LauncherConfig) -> String {
     text
 }
 
-#[cfg(feature = "launcher")]
+#[cfg(feature = "orbit")]
 pub fn quoted(value: &str) -> String {
     format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
@@ -570,6 +614,34 @@ impl Reader<'_> {
     }
 
     #[cfg(feature = "orbit")]
+    fn tiles(&self, section: &str, key: &str, out: &mut Vec<Tile>) -> Result<(), ParseError> {
+        let Some(entry) = self.table.get(section, key) else {
+            return Ok(());
+        };
+        let error = ParseError::at(
+            entry.line,
+            tr(
+                "ожидался список плиток вида [\"screenshot\", \"url:https://…\"], не больше 16, без повторов",
+                "expected a list of tiles like [\"screenshot\", \"url:https://…\"], up to 16, without repeats",
+            ),
+        );
+        let items = entry.value.as_array().ok_or(error.clone())?;
+        if items.len() > MAX_TILES {
+            return Err(error);
+        }
+        let mut tiles = Vec::with_capacity(items.len());
+        for item in items {
+            let tile = item.as_str().and_then(Tile::parse).ok_or(error.clone())?;
+            if tiles.contains(&tile) {
+                return Err(error);
+            }
+            tiles.push(tile);
+        }
+        *out = tiles;
+        Ok(())
+    }
+
+    #[cfg(feature = "orbit")]
     fn satellites(
         &self,
         section: &str,
@@ -670,12 +742,57 @@ mod tests {
 
     #[cfg(feature = "orbit")]
     #[test]
+    fn reads_hub_tiles() {
+        let text = "[hub]
+tiles = [\"settings\", \"app:C:\\\\A\\\\T.lnk\", \"url:https://x.org|X\"]
+";
+        let config = Config::from_toml(text).unwrap();
+        assert_eq!(config.orbit.tiles.len(), 3);
+        assert_eq!(config.orbit.tiles[1].title(), "T");
+        assert_eq!(Config::from_toml(&config.to_toml()).unwrap(), config);
+        assert!(
+            Config::from_toml(
+                "[hub]
+tiles = [\"radio\"]
+"
+            )
+            .is_err()
+        );
+        assert!(
+            Config::from_toml(
+                "[hub]
+tiles = [\"shape\", \"shape\"]
+"
+            )
+            .is_err()
+        );
+        let many = vec!["\"cmd:a\""; 17].join(", ");
+        assert!(
+            Config::from_toml(&format!(
+                "[hub]
+tiles = [{many}]
+"
+            ))
+            .is_err()
+        );
+        let empty = Config::from_toml(
+            "[hub]
+tiles = []
+",
+        )
+        .unwrap();
+        assert!(empty.orbit.tiles.is_empty());
+    }
+
+    #[cfg(feature = "orbit")]
+    #[test]
     fn shape_change_does_not_need_rebuild() {
         let a = OrbitConfig::default();
         let mut b = a.clone();
         b.radius_x = 30.0;
         b.rotate = false;
         b.notices.track = true;
+        b.tiles.clear();
         assert!(!a.needs_rebuild(&b));
         b.period_secs = 10.0;
         assert!(a.needs_rebuild(&b));

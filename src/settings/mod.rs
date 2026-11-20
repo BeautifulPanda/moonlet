@@ -1,3 +1,5 @@
+#[cfg(feature = "orbit")]
+mod choose;
 mod field;
 mod page;
 mod view;
@@ -821,7 +823,9 @@ impl Settings {
             self.place_caret();
             self.commit();
         }
-        self.scroll_into_view();
+        if self.focus_visible {
+            self.scroll_into_view();
+        }
     }
 
     fn move_focus(&mut self, delta: isize) {
@@ -850,8 +854,12 @@ impl Settings {
         };
         let change = match (&row.control, part) {
             (Control::Toggle(_), _) | (Control::Order { .. }, Part::Row) => Change::Toggle,
-            (Control::Order { up: true, .. }, Part::Up) => Change::Move(-1),
-            (Control::Order { down: true, .. }, Part::Down) => Change::Move(1),
+            (Control::Order { up: true, .. }, Part::Up)
+            | (Control::Tile { up: true, .. }, Part::Up) => Change::Move(-1),
+            (Control::Order { down: true, .. }, Part::Down)
+            | (Control::Tile { down: true, .. }, Part::Down) => Change::Move(1),
+            (Control::Tile { .. }, Part::Remove) => Change::Remove,
+            (Control::Picks(_), Part::Option(i)) => Change::Pick(i),
             (Control::Choice(_, selected), Part::Segment(i)) if *selected != Some(i) => {
                 Change::Pick(i)
             }
@@ -873,6 +881,11 @@ impl Settings {
     }
 
     fn change(&mut self, setting: Setting, change: Change) {
+        #[cfg(feature = "orbit")]
+        if let (Setting::Tile(index), Change::Move(delta)) = (setting, &change) {
+            let to = (index as isize + delta).max(0) as usize;
+            self.focus = Focus::Row(Setting::Tile(to));
+        }
         let language = self.config.language;
         let autostart = self.config.autostart;
         let writes = page::apply(&mut self.config, &mut self.ui, setting, change);
@@ -894,6 +907,7 @@ impl Settings {
         if setting == Setting::Search && self.ui.custom_search {
             self.refresh();
             self.set_focus(Focus::Row(Setting::SearchUrl));
+            self.scroll_into_view();
             self.edit(Field::select_all);
             return;
         }
@@ -951,6 +965,14 @@ impl Settings {
                     self.reveal_news();
                 }
             }
+            #[cfg(feature = "orbit")]
+            Setting::Browse => {
+                let folder = self.ui.add_kind == 3;
+                let programs = self.ui.add_kind == 1;
+                if let Some(path) = choose::path(self.hwnd, folder, programs) {
+                    self.change(setting, Change::Text(path));
+                }
+            }
             Setting::OpenFile => config::open_in_notepad(),
             Setting::Website => unsafe {
                 ShellExecuteW(
@@ -985,8 +1007,15 @@ impl Settings {
             let _ = Config::save_value(w.section, w.key, &w.value);
         }
         self.rows = page::rows(self.sections[self.section], &self.config, &self.ui);
+        let saved = self.rows.iter().find_map(|row| match &row.control {
+            Control::Field(saved) if row.setting == Some(setting) => Some(saved.clone()),
+            _ => None,
+        });
         if let Some(field) = &mut self.field {
-            field.all = false;
+            match saved {
+                Some(saved) if saved.trim() != field.value().trim() => *field = Field::new(&saved),
+                _ => field.all = false,
+            }
         }
         true
     }
@@ -994,6 +1023,15 @@ impl Settings {
     fn edit(&mut self, action: impl FnOnce(&mut Field)) {
         if let Some(field) = &mut self.field {
             action(field);
+        }
+        #[cfg(feature = "orbit")]
+        if let (Some(field), Some(index)) = (&self.field, self.focus_index())
+            && self.rows[index].setting == Some(Setting::AppQuery)
+            && field.value() != self.ui.app_query
+        {
+            self.ui.app_query = field.value();
+            self.refresh();
+            return;
         }
         self.repaint_focus();
         self.place_caret();
@@ -1113,9 +1151,18 @@ impl Settings {
                     Control::Choice(ref options, selected) => {
                         Part::Segment(selected.map_or(0, |s| (s + 1) % options.len()))
                     }
+                    Control::Picks(_) => Part::Option(0),
                     _ => return true,
                 };
                 self.activate(index, part);
+            }
+            (v, Control::Tile { .. }) if v == VK_DELETE.0 => self.activate(index, Part::Remove),
+            (v, Control::Tile { up, down }) if ctrl && (v == VK_UP.0 || v == VK_DOWN.0) => {
+                if v == VK_UP.0 && *up {
+                    self.change(setting, Change::Move(-1));
+                } else if v == VK_DOWN.0 && *down {
+                    self.change(setting, Change::Move(1));
+                }
             }
             (v, Control::Choice(options, selected)) if v == VK_LEFT.0 || v == VK_RIGHT.0 => {
                 let delta = if v == VK_LEFT.0 { -1 } else { 1 };
