@@ -1,13 +1,13 @@
 [package]
 name = "moonlet"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 description = "Lightweight, modular desktop customization for Windows"
 publish = false
 
 [features]
-default = ["orbit", "music", "update", "launcher"]
+default = ["orbit", "music", "update", "launcher", "settings"]
 launcher = [
     "orbit",
     "windows/Win32_System_DataExchange",
@@ -30,6 +30,22 @@ music = [
     "windows/Win32_System_Variant",
 ]
 orbit = [
+    "gfx",
+    "windows/Win32_System_Performance",
+    "windows/Win32_System_Power",
+    "windows/Win32_System_SystemInformation",
+    "windows/Win32_System_SystemServices",
+    "windows/Win32_UI_Input_KeyboardAndMouse",
+]
+settings = [
+    "gfx",
+    "windows/Win32_Graphics_Dwm",
+    "windows/Win32_System_DataExchange",
+    "windows/Win32_System_Memory",
+    "windows/Win32_UI_Controls",
+    "windows/Win32_UI_Input_KeyboardAndMouse",
+]
+gfx = [
     "windows/Win32_Graphics_Direct2D",
     "windows/Win32_Graphics_Direct2D_Common",
     "windows/Win32_Graphics_Direct3D",
@@ -38,11 +54,6 @@ orbit = [
     "windows/Win32_Graphics_DirectWrite",
     "windows/Win32_Graphics_Dxgi",
     "windows/Win32_Graphics_Dxgi_Common",
-    "windows/Win32_System_Performance",
-    "windows/Win32_System_Power",
-    "windows/Win32_System_SystemInformation",
-    "windows/Win32_System_SystemServices",
-    "windows/Win32_UI_Input_KeyboardAndMouse",
     "dep:windows-numerics",
 ]
 

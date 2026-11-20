@@ -49,7 +49,7 @@ pub enum Mode {
 }
 
 impl Mode {
-    const ALL: [(Mode, &'static str); 3] = [
+    pub const ALL: [(Mode, &'static str); 3] = [
         (Mode::Auto, "auto"),
         (Mode::Check, "check"),
         (Mode::Off, "off"),

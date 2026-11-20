@@ -1,13 +1,18 @@
+// The settings window alone (no orbit) does not use every drawing helper.
+#![cfg_attr(not(feature = "orbit"), allow(dead_code))]
+
 use std::cell::OnceCell;
 use std::f32::consts::TAU;
 
-use windows::Win32::Foundation::{CloseHandle, E_FAIL, HANDLE, HMODULE, POINT};
+use windows::Win32::Foundation::{CloseHandle, E_FAIL, HANDLE, HMODULE, POINT, RECT};
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D_RECT_F, D2D_SIZE_F, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_HOLLOW, D2D1_FIGURE_END_OPEN,
     D2D1_GRADIENT_STOP,
 };
 #[cfg(feature = "music")]
 use windows::Win32::Graphics::Direct2D::D2D1_BRUSH_PROPERTIES;
+#[cfg(feature = "settings")]
+use windows::Win32::Graphics::Direct2D::D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE;
 use windows::Win32::Graphics::Direct2D::{
     D2D1_ANTIALIAS_MODE_ALIASED, D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_LARGE, D2D1_ARC_SIZE_SMALL,
     D2D1_CAP_STYLE_ROUND, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE, D2D1_EXTEND_MODE_CLAMP,
@@ -26,7 +31,7 @@ use windows::Win32::Graphics::Direct3D11::{
 use windows::Win32::Graphics::DirectComposition::{
     DCompositionCreateDevice2, IDCompositionDesktopDevice, IDCompositionSurface,
 };
-#[cfg(feature = "launcher")]
+#[cfg(any(feature = "launcher", feature = "settings"))]
 use windows::Win32::Graphics::DirectWrite::DWRITE_HIT_TEST_METRICS;
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
@@ -36,6 +41,8 @@ use windows::Win32::Graphics::DirectWrite::{
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_TRIMMING, DWRITE_TRIMMING_GRANULARITY_CHARACTER,
 };
+#[cfg(feature = "settings")]
+use windows::Win32::Graphics::Dxgi::Common::DXGI_ALPHA_MODE_IGNORE;
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_ALPHA_MODE_PREMULTIPLIED, DXGI_FORMAT_B8G8R8A8_UNORM,
 };
@@ -68,6 +75,8 @@ pub struct Gfx {
     d2d: ID2D1Device,
     d3d: ID3D11Device,
     lost: Option<(HANDLE, u32)>,
+    #[cfg(feature = "settings")]
+    pub cleartype: bool,
 }
 
 impl Drop for Gfx {
@@ -108,6 +117,8 @@ impl Gfx {
                 d2d,
                 d3d,
                 lost,
+                #[cfg(feature = "settings")]
+                cleartype: false,
             })
         }
     }
@@ -145,6 +156,18 @@ impl Gfx {
         }
     }
 
+    #[cfg(feature = "settings")]
+    pub fn opaque_surface(&self, width: u32, height: u32) -> Result<IDCompositionSurface> {
+        unsafe {
+            self.dcomp.CreateSurface(
+                width,
+                height,
+                DXGI_FORMAT_B8G8R8A8_UNORM,
+                DXGI_ALPHA_MODE_IGNORE,
+            )
+        }
+    }
+
     pub fn draw(
         &self,
         surface: &IDCompositionSurface,
@@ -152,20 +175,57 @@ impl Gfx {
         height: u32,
         draw: impl FnOnce(&Painter),
     ) -> Result<()> {
+        self.draw_inner(surface, (width, height), None, draw)
+    }
+
+    #[cfg(feature = "settings")]
+    pub fn draw_part(
+        &self,
+        surface: &IDCompositionSurface,
+        size: (u32, u32),
+        part: (i32, i32, i32, i32),
+        draw: impl FnOnce(&Painter),
+    ) -> Result<()> {
+        self.draw_inner(surface, size, Some(part), draw)
+    }
+
+    fn draw_inner(
+        &self,
+        surface: &IDCompositionSurface,
+        (width, height): (u32, u32),
+        part: Option<(i32, i32, i32, i32)>,
+        draw: impl FnOnce(&Painter),
+    ) -> Result<()> {
+        let (px, py, pw, ph) = part.unwrap_or((0, 0, width as i32, height as i32));
+        let update = RECT {
+            left: px,
+            top: py,
+            right: px + pw,
+            bottom: py + ph,
+        };
         unsafe {
             let mut offset = POINT::default();
-            let dc: ID2D1DeviceContext = surface.BeginDraw(None, &mut offset)?;
+            let dc: ID2D1DeviceContext =
+                surface.BeginDraw(part.map(|_| &update as *const RECT), &mut offset)?;
             dc.SetDpi(96.0, 96.0);
             // ClearType leaves colored fringes on a transparent surface.
-            dc.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
-            let origin = (offset.x as f32, offset.y as f32);
+            #[cfg(feature = "settings")]
+            let mode = if self.cleartype {
+                D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE
+            } else {
+                D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE
+            };
+            #[cfg(not(feature = "settings"))]
+            let mode = D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE;
+            dc.SetTextAntialiasMode(mode);
+            let origin = ((offset.x - px) as f32, (offset.y - py) as f32);
             let size = (width as f32, height as f32);
             // Surfaces share an atlas: clip to our rectangle before clearing.
             let bounds = D2D_RECT_F {
-                left: origin.0,
-                top: origin.1,
-                right: origin.0 + size.0,
-                bottom: origin.1 + size.1,
+                left: offset.x as f32,
+                top: offset.y as f32,
+                right: (offset.x + pw) as f32,
+                bottom: (offset.y + ph) as f32,
             };
             dc.PushAxisAlignedClip(&bounds, D2D1_ANTIALIAS_MODE_ALIASED);
             dc.Clear(Some(&D2D1_COLOR_F::default()));
@@ -305,7 +365,7 @@ pub struct TextBlock {
 }
 
 impl TextBlock {
-    #[cfg(feature = "launcher")]
+    #[cfg(any(feature = "launcher", feature = "settings"))]
     pub fn caret_x(&self, position: u32) -> f32 {
         if position == 0 {
             return 0.0;
@@ -475,7 +535,7 @@ impl Painter<'_> {
         }
     }
 
-    #[cfg(feature = "launcher")]
+    #[cfg(any(feature = "launcher", feature = "settings"))]
     pub fn clip(&self, rect: (f32, f32, f32, f32), draw: impl FnOnce()) {
         let (x, y, w, h) = rect;
         let bounds = D2D_RECT_F {

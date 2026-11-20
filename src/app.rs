@@ -9,15 +9,22 @@ use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{CreateMutexW, INFINITE};
 use windows::Win32::UI::HiDpi::GetSystemMetricsForDpi;
+#[cfg(any(feature = "orbit", feature = "settings"))]
 use windows::Win32::UI::Shell::ShellExecuteW;
+#[cfg(any(feature = "orbit", feature = "settings"))]
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+#[cfg(feature = "settings")]
+use windows::Win32::UI::WindowsAndMessaging::{ASFW_ANY, AllowSetForegroundWindow};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, HICON, KillTimer, MSG,
     MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, PostQuitMessage,
-    QS_ALLINPUT, RegisterClassW, RegisterWindowMessageW, SM_CXSMICON, SW_SHOWNORMAL, SetTimer,
-    TranslateMessage, WINDOW_EX_STYLE, WM_APP, WM_COMMAND, WM_DISPLAYCHANGE, WM_DPICHANGED,
-    WM_QUIT, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
+    QS_ALLINPUT, RegisterClassW, RegisterWindowMessageW, SM_CXSMICON, SetTimer, TranslateMessage,
+    WINDOW_EX_STYLE, WM_APP, WM_COMMAND, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_QUIT, WM_TIMER,
+    WNDCLASSW, WS_OVERLAPPED,
 };
-use windows::core::{Error, HSTRING, PCWSTR, Result, w};
+#[cfg(feature = "settings")]
+use windows::core::HSTRING;
+use windows::core::{Error, PCWSTR, Result, w};
 
 use crate::autostart;
 use crate::config::{self, Config};
@@ -69,6 +76,8 @@ pub const WM_SCREEN_CHANGED: u32 = WM_APP + 4;
 const CMD_EXIT: u32 = 100;
 const CMD_AUTOSTART: u32 = 105;
 pub const CMD_OPEN_CONFIG: u32 = 106;
+#[cfg(feature = "settings")]
+const CMD_OPEN_CONFIG_FILE: u32 = 116;
 #[cfg(feature = "orbit")]
 pub const CMD_SHAPE_CIRCLE: u32 = 101;
 #[cfg(feature = "orbit")]
@@ -90,7 +99,7 @@ const CMD_UPDATE_CHECK: u32 = 111;
 #[cfg(feature = "update")]
 const CMD_UPDATE_OFF: u32 = 112;
 #[cfg(feature = "update")]
-const CMD_UPDATE_NOW: u32 = 113;
+pub const CMD_UPDATE_NOW: u32 = 113;
 #[cfg(feature = "update")]
 const CMD_UPDATE_INSTALL: u32 = 114;
 #[cfg(feature = "update")]
@@ -112,8 +121,12 @@ pub struct SingleInstance(HANDLE);
 
 impl SingleInstance {
     pub fn acquire() -> Option<Self> {
+        Self::named(w!("Local\\Moonlet.SingleInstance"))
+    }
+
+    pub fn named(name: PCWSTR) -> Option<Self> {
         unsafe {
-            let handle = CreateMutexW(None, true, w!("Local\\Moonlet.SingleInstance")).ok()?;
+            let handle = CreateMutexW(None, true, name).ok()?;
             if GetLastError() == ERROR_ALREADY_EXISTS {
                 let _ = CloseHandle(handle);
                 return None;
@@ -490,6 +503,7 @@ impl App {
         }
     }
 
+    #[allow(clippy::vec_init_then_push)]
     fn menu(&self) -> Vec<MenuItem> {
         let mut items = Vec::new();
         #[cfg(feature = "orbit")]
@@ -545,8 +559,16 @@ impl App {
         ));
         #[cfg(feature = "update")]
         items.push(self.update_menu());
+        items.push(MenuItem::Action(
+            CMD_OPEN_CONFIG,
+            tr("Открыть настройки", "Open settings"),
+        ));
+        #[cfg(feature = "settings")]
+        items.push(MenuItem::Action(
+            CMD_OPEN_CONFIG_FILE,
+            tr("Открыть config.toml", "Open config.toml"),
+        ));
         items.extend([
-            MenuItem::Action(CMD_OPEN_CONFIG, tr("Открыть настройки", "Open settings")),
             MenuItem::Separator,
             MenuItem::Action(CMD_EXIT, tr("Выход", "Exit")),
         ]);
@@ -562,7 +584,9 @@ impl App {
                 autostart::apply(on);
                 self.save("general", "autostart", yes_no(on));
             }
-            CMD_OPEN_CONFIG => self.open_config(),
+            CMD_OPEN_CONFIG => self.open_settings(),
+            #[cfg(feature = "settings")]
+            CMD_OPEN_CONFIG_FILE => config::open_in_notepad(),
             #[cfg(feature = "orbit")]
             CMD_SCREENSHOT => open_screen_snip(),
             #[cfg(feature = "orbit")]
@@ -670,21 +694,27 @@ impl App {
         }
     }
 
-    fn open_config(&self) {
-        let Some(path) = config::path() else {
+    #[cfg(feature = "settings")]
+    fn open_settings(&self) {
+        let Ok(exe) = std::env::current_exe() else {
             return;
         };
-        let argument = HSTRING::from(format!("\"{}\"", path.display()));
         unsafe {
+            let _ = AllowSetForegroundWindow(ASFW_ANY);
             ShellExecuteW(
                 Some(self.hwnd),
                 w!("open"),
-                w!("notepad.exe"),
-                &argument,
+                &HSTRING::from(exe.as_os_str()),
+                w!("--settings"),
                 PCWSTR::null(),
                 SW_SHOWNORMAL,
             );
         }
+    }
+
+    #[cfg(not(feature = "settings"))]
+    fn open_settings(&self) {
+        config::open_in_notepad();
     }
 
     fn config_file_changed(&self) {

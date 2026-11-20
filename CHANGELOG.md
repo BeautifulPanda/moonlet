@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.0] - 2026-11-20
+
+- Settings window in Moonlet's style: tray menu → "Open settings", the hub
+  tile or the `settings` command. Sections: General (language, start with
+  Windows, pause on battery, updates and "Check now"), Orbit (on/off, shape,
+  rotation, direction, speed, hover delay), Satellites (which ones and their
+  order, temporary satellites and how long they stay), Command line (on/off,
+  hotkey recorder that checks whether the combination is taken, web search
+  engine or a custom address) and About.
+  - Changes are saved to `config.toml` at once; comments in the file are kept.
+    Hand edits made while the window is open show up in it, and an error in
+    the file is shown with its line number.
+  - Keyboard: Tab, arrows, Space and Enter; Ctrl+Tab switches sections;
+    Esc closes the window.
+  - The window is a separate process (`moonlet.exe --settings`): closing it
+    returns all of its memory. Only one window opens at a time.
+- The tray menu has "Open config.toml" for editing the file by hand.
+
 ## [0.2.0] - 2026-11-20
 
 - Command line on `Ctrl+Alt+Space` (configurable in `config.toml`, section

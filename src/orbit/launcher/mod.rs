@@ -273,7 +273,7 @@ impl Orbit {
                 self.close_launcher(false)
             }
             Action::Copy(text) => {
-                shell::copy(launcher.hwnd, &text);
+                crate::clipboard::copy(launcher.hwnd, &text);
                 self.close_launcher(true)
             }
             Action::Command(command) => {
@@ -424,7 +424,7 @@ impl Orbit {
                 return self.launcher_changed(true);
             }
             0x56 if ctrl => {
-                if let Some(text) = shell::paste(launcher.hwnd) {
+                if let Some(text) = crate::clipboard::paste(launcher.hwnd) {
                     launcher.insert(&text);
                 }
                 return self.launcher_changed(true);

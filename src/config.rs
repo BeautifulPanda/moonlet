@@ -1,6 +1,10 @@
 use std::fmt;
 use std::path::PathBuf;
 
+use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+use windows::core::{HSTRING, PCWSTR, w};
+
 #[cfg(feature = "launcher")]
 use crate::hotkey::Hotkey;
 use crate::lang::{Language, tr};
@@ -184,6 +188,23 @@ impl fmt::Display for LoadError {
             LoadError::Io(error) => write!(f, "{error}"),
             LoadError::Parse(error) => write!(f, "{error}"),
         }
+    }
+}
+
+pub fn open_in_notepad() {
+    let Some(path) = path() else {
+        return;
+    };
+    let argument = HSTRING::from(format!("\"{}\"", path.display()));
+    unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            w!("notepad.exe"),
+            &argument,
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        );
     }
 }
 

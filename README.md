@@ -66,11 +66,17 @@ publisher the first time.
 
 ### Settings
 
-Tray menu → "Open settings" opens `%APPDATA%\Moonlet\config.toml`. Changes
-apply as soon as the file is saved. Every option is commented in the file:
-orbit shape and speed, which satellites to show and in what order, temporary
-satellites, the command line hotkey and search, language (`auto`, `en`, `ru`)
-and updates.
+Tray menu → "Open settings" (or the hub tile, or `settings` in the command
+line) opens the settings window: language, start with Windows, updates, orbit
+shape and speed, which satellites to show and in what order, temporary
+satellites, the command line hotkey and web search. Every change applies at
+once. The window is a separate process, so closing it frees all of its memory.
+
+![Settings](docs/settings.png)
+
+Everything is stored in `%APPDATA%\Moonlet\config.toml` ("Open config.toml"
+in the tray menu). The file is commented and can be edited by hand, including
+sizes that the window does not show; changes apply as soon as it is saved.
 
 A `config.toml` created by an older version keeps working; to change the
 command line settings, add
@@ -109,9 +115,9 @@ without music and updates.
 
 ### Plans
 
-- Desktop widgets.
-- Top bar and themes.
-- Live wallpapers.
+- Bluetooth toggle; files, folders and system commands in the command line.
+- Notes and reminders.
+- Scenarios: open a set of apps and put the windows in place with one word.
 - Games: FPS counter (optional, off by default).
 
 ### License
@@ -176,11 +182,15 @@ DirectComposition — без веб-движков и GUI-фреймворков
 
 ### Настройки
 
-Меню трея → «Открыть настройки» открывает `%APPDATA%\Moonlet\config.toml`.
-Изменения применяются сразу после сохранения. Каждый параметр описан прямо в
-файле: форма и скорость орбиты, какие спутники и в каком порядке, временные
-спутники, клавиша и поиск командной строки, язык (`auto`, `ru`, `en`)
-и обновления.
+Меню трея → «Открыть настройки» (или плитка хаба, или `настройки` в командной
+строке) открывает окно настроек: язык, автозапуск, обновления, форма и скорость
+орбиты, какие спутники и в каком порядке, временные спутники, клавиша и поиск
+командной строки. Каждая правка применяется сразу. Окно — отдельный процесс:
+закрыли его, и вся его память освободилась.
+
+Всё хранится в `%APPDATA%\Moonlet\config.toml` («Открыть config.toml» в меню
+трея). Файл с пояснениями, его можно править руками, в том числе размеры,
+которых нет в окне; изменения применяются сразу после сохранения.
 
 `config.toml` от прежней версии работает как есть; чтобы поменять настройки
 командной строки, допишите
@@ -219,9 +229,9 @@ cargo build --release
 
 ### Планы
 
-- Виджеты на рабочем столе.
-- Верхний бар и темы.
-- Живые обои.
+- Переключатель Bluetooth; файлы, папки и системные команды в командной строке.
+- Заметки и напоминания.
+- Сценарии: одним словом открыть нужные программы и расставить окна.
 - Игры: счётчик FPS (по желанию, по умолчанию выключен).
 
 ### Лицензия

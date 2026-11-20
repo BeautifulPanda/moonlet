@@ -3,12 +3,16 @@
 
 mod app;
 mod autostart;
+#[cfg(any(feature = "launcher", feature = "settings"))]
+mod clipboard;
 mod config;
 #[cfg(feature = "launcher")]
 mod hotkey;
 mod icon;
 mod lang;
 mod screen;
+#[cfg(feature = "settings")]
+mod settings;
 mod toml;
 mod tray;
 #[cfg(feature = "update")]
@@ -17,7 +21,7 @@ mod watch;
 
 #[cfg(feature = "orbit")]
 mod fullscreen;
-#[cfg(feature = "orbit")]
+#[cfg(feature = "gfx")]
 mod gfx;
 #[cfg(feature = "orbit")]
 mod orbit;
@@ -33,6 +37,12 @@ use windows::core::{HSTRING, w};
 fn main() {
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
+
+    #[cfg(feature = "settings")]
+    if std::env::args().any(|arg| arg == "--settings") {
+        settings::run();
+        return;
     }
 
     let updated = std::env::args().any(|arg| arg == "--updated");
