@@ -40,6 +40,10 @@ views, no GUI frameworks.
   `volume 30`. Pick them and their order in Settings → Quick access.
   The Bluetooth tile turns it on or off; hold it (or right-click) for the
   Windows devices page.
+- **Timers and reminders.** `timer 10 min`, `timer until 11:10`,
+  `remind me at 15:30 call mom` in the command line. Each one is a small pink
+  satellite with a ring of the time left; when time is up, a note flies out
+  and a soft chime plays. They survive restarts and sleep.
 - **Temporary satellites.** Plugging the charger in or out and a low battery
   (20% and 10%) send a small copy of the battery satellite out with a short
   note. A new song can do the same (off by default).
@@ -48,6 +52,8 @@ views, no GUI frameworks.
     Russian typed for English names: `ntktuhfv` finds Telegram);
   - files and folders from the Windows Search index; the empty field shows
     recent files. Enter opens, Ctrl+Enter shows the file in its folder;
+  - timers and reminders: `timer 10 min`, `timer until 11:10`, `alarm 7:30`,
+    `remind me in 20 min …`, `remind me at 15:30 …`, `remind me tomorrow at 9 …`;
   - Moonlet commands: `pause`, `next`, `back`, `volume 30`, `circle`, `oval`,
     `rotate`, `screenshot`, `settings`, `bluetooth` (Russian words work too);
   - system commands: `sleep`, `lock`, `shutdown`, `restart`, `empty bin`.
@@ -78,7 +84,8 @@ Tray menu → "Open settings" (or the hub tile, or `settings` in the command
 line) opens the settings window: language, start with Windows, updates, orbit
 shape and speed, quick access (which satellites sit on the orbit and which
 tiles are in the hub, in what order; apps are found by searching the Start
-menu), temporary satellites, the command line hotkey and web search. Every
+menu), temporary satellites, the command line hotkey and web search, the timer
+sound and the active timers. Every
 change applies at once. The window is a separate process, so closing it frees all of its memory.
 "What's new" in General → Updates lists the changes of the installed version.
 
@@ -130,7 +137,7 @@ without music and updates.
 
 ### Plans
 
-- Notes and reminders.
+- Notes.
 - Scenarios: open a set of apps and put the windows in place with one word.
 - Games: FPS counter (optional, off by default).
 
@@ -172,6 +179,10 @@ DirectComposition — без веб-движков и GUI-фреймворков
   `громкость 30`. Что и в каком порядке — в настройках, раздел «Быстрый доступ».
   Плитка Bluetooth включает и выключает его; если её зажать (или кликнуть
   правой кнопкой) — откроется окно устройств Windows.
+- **Таймеры и напоминания.** `таймер 10 мин`, `таймер до 11:10`,
+  `напомни в 15:30 позвонить маме` в командной строке. Каждый — маленький
+  розовый спутник с кольцом оставшегося времени; когда время вышло, вылетает
+  надпись и звучит мягкий сигнал. Переживают перезапуск и сон.
 - **Временные спутники.** Подключили или отключили зарядку, заряд упал до 20%
   и 10% — из спутника батареи вылетает его маленькая копия с короткой надписью.
   Так же можно показывать новый трек (по умолчанию выключено).
@@ -180,6 +191,9 @@ DirectComposition — без веб-движков и GUI-фреймворков
     английской программы: `ntktuhfv` находит Telegram);
   - файлы и папки из индекса поиска Windows; пустое поле показывает недавние
     файлы. Enter открывает, Ctrl+Enter показывает файл в папке;
+  - таймеры и напоминания: `таймер 10 мин`, `таймер до 11:10`,
+    `будильник 7:30`, `напомни через 20 мин …`, `напомни на 11:00 …`,
+    `напомни завтра в 9 …`;
   - команды Moonlet: `пауза`, `дальше`, `назад`, `громкость 30`, `круг`,
     `овал`, `вращение`, `скриншот`, `настройки`, `блютуз` (английские слова тоже);
   - системные команды: `сон`, `заблокировать`, `выключить`, `перезагрузка`,
@@ -209,7 +223,7 @@ DirectComposition — без веб-движков и GUI-фреймворков
 строке) открывает окно настроек: язык, автозапуск, обновления, форма и скорость
 орбиты, быстрый доступ (какие спутники на орбите и какие плитки в хабе, в каком
 порядке; программу можно найти поиском по «Пуску»), временные спутники,
-клавиша и поиск командной строки. Каждая правка применяется сразу. Окно — отдельный процесс:
+клавиша и поиск командной строки, звук таймеров и список активных. Каждая правка применяется сразу. Окно — отдельный процесс:
 закрыли его, и вся его память освободилась. «Что нового» в «Общих» → «Обновления»
 показывает изменения установленной версии.
 
@@ -259,7 +273,7 @@ cargo build --release
 
 ### Планы
 
-- Заметки и напоминания.
+- Заметки.
 - Сценарии: одним словом открыть нужные программы и расставить окна.
 - Игры: счётчик FPS (по желанию, по умолчанию выключен).
 

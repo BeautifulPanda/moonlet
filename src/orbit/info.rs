@@ -115,7 +115,7 @@ pub fn card(kind: SatelliteKind) -> Card {
 }
 
 pub struct Notice {
-    pub kind: SatelliteKind,
+    pub kind: Option<SatelliteKind>,
     pub text: String,
     pub look: Look,
     pub long: bool,
@@ -132,7 +132,7 @@ pub fn power_notice(on_battery: bool) -> Option<Notice> {
         tr("Зарядка", "Charging")
     };
     Some(Notice {
-        kind: SatelliteKind::Battery,
+        kind: Some(SatelliteKind::Battery),
         text: format!("{text} · {}%", battery.percent),
         look: look(SatelliteKind::Battery),
         long: false,
@@ -148,7 +148,7 @@ pub fn low_battery_notice(warned: &mut Option<u8>) -> Option<Notice> {
     *warned = now_warned;
     crossed?;
     Some(Notice {
-        kind: SatelliteKind::Battery,
+        kind: Some(SatelliteKind::Battery),
         text: format!(
             "{} · {}%",
             tr("Мало заряда", "Low battery"),
@@ -177,7 +177,7 @@ pub fn track_notice(track: &super::media::Track) -> Notice {
         format!("{} — {}", track.title, track.artist)
     };
     Notice {
-        kind: SatelliteKind::Music,
+        kind: Some(SatelliteKind::Music),
         text,
         look: music_look(Some(track), super::motion::now()),
         long: false,

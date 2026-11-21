@@ -12,9 +12,13 @@ mod config;
 mod hotkey;
 mod icon;
 mod lang;
+#[cfg(feature = "timers")]
+mod reminders;
 mod screen;
 #[cfg(feature = "settings")]
 mod settings;
+#[cfg(feature = "timers")]
+mod sound;
 mod toml;
 mod tray;
 #[cfg(feature = "update")]

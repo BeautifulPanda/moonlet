@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.6.0] - 2026-11-21
+
+- Timers and reminders from the command line (Russian words work too):
+  - `timer 10 min`, `timer 1 h 30 min tea`, `timer 1:30`;
+  - `timer until 11:10` and `alarm 7:30`: a timer that ends at a clock time;
+  - `remind me in 20 min call mom`, `remind me at 15:30 …`,
+    `remind me tomorrow at 9 …`, `remind me to call the bank in an hour`;
+    `tomorrow` without a time means 9:00.
+  Enter starts it. Up to 20 are kept in `%APPDATA%\Moonlet\reminders.txt`, so
+  they survive restarts and sleep. One Windows waitable timer wakes Moonlet
+  exactly at the nearest one; nothing is polled. A reminder that came due while
+  the computer slept or Moonlet was closed shows up at once, marked "Missed".
+- Each of the three nearest timers is a small pink satellite on the orbit. It
+  takes the middle of a gap between the regular satellites, so their places
+  never move. Its ring shows the time left and is redrawn only when it gets a
+  pixel shorter. Hover the core to see them in a row next to it with the time
+  left; the card shows the details and cancels the timer.
+- When time is up, a small copy flies out with a note and a soft two-note
+  chime plays (synthesized in code, no sound file). The note stays until you
+  touch the mouse or keyboard. Several at once show as one note with "(+N)".
+  Without the orbit the note goes to the tray.
+- Settings → Timers: the sound (chime, your own .wav, or silent), a play
+  button, and the active timers and reminders with Cancel. In config.toml:
+  `[timers] sound = "drop" | "off" | "path to .wav"`.
+
 ## [0.5.0] - 2026-11-21
 
 - Bluetooth hub tile (`bluetooth` in `[hub] tiles`): a click turns Bluetooth on

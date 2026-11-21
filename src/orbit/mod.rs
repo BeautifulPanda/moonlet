@@ -12,6 +12,8 @@ mod media;
 mod motion;
 mod scene;
 mod shell;
+#[cfg(feature = "timers")]
+mod timers;
 #[cfg(feature = "music")]
 mod volume;
 
@@ -25,7 +27,9 @@ use windows::Win32::Graphics::Gdi::{
     CombineRgn, CreateEllipticRgn, CreateRectRgn, DeleteObject, RGN_OR, SetWindowRgn,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Input::KeyboardAndMouse::{TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetLastInputInfo, LASTINPUTINFO, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DestroyWindow, HTTRANSPARENT, HWND_TOPMOST, IDC_ARROW, KillTimer, LWA_ALPHA,
     LoadCursorW, MA_NOACTIVATE, RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
@@ -120,6 +124,16 @@ pub struct Orbit {
     #[cfg(feature = "bluetooth")]
     bluetooth: Option<bluetooth::Bluetooth>,
     notice: Option<NoticeView>,
+    #[cfg(feature = "timers")]
+    sat_layer: IDCompositionVisual2,
+    #[cfg(feature = "timers")]
+    timers: Vec<timers::TimerSat>,
+    #[cfg(feature = "timers")]
+    timer_total: usize,
+    #[cfg(feature = "timers")]
+    timer_labels: Option<Labels>,
+    #[cfg(feature = "timers")]
+    pending_notice: Option<info::Notice>,
     #[cfg(feature = "launcher")]
     launcher: Option<launcher::Launcher>,
     #[cfg(feature = "launcher")]
@@ -232,6 +246,9 @@ impl Geometry {
                 height.max((top + panel_height + margin).ceil()),
             )
         };
+        #[cfg(feature = "timers")]
+        let half_width =
+            half_width.max((layout_radius + timers::ROW_REACH * scale + margin).ceil());
         let monitor = screen::rect();
         let width = 2 * half_width as i32;
         let left = monitor.left + (monitor.right - monitor.left - width) / 2;
@@ -357,6 +374,16 @@ impl Orbit {
                 #[cfg(feature = "bluetooth")]
                 bluetooth: None,
                 notice: None,
+                #[cfg(feature = "timers")]
+                sat_layer: layer,
+                #[cfg(feature = "timers")]
+                timers: Vec::new(),
+                #[cfg(feature = "timers")]
+                timer_total: 0,
+                #[cfg(feature = "timers")]
+                timer_labels: None,
+                #[cfg(feature = "timers")]
+                pending_notice: None,
                 #[cfg(feature = "launcher")]
                 launcher: None,
                 #[cfg(feature = "launcher")]
@@ -438,14 +465,32 @@ impl Orbit {
                 Some(LRESULT(0))
             }
             WM_TIMER if wparam.0 == NOTICE_TIMER => {
-                if self.cursor_on_notice() {
-                    unsafe {
-                        SetTimer(Some(self.input_hwnd), NOTICE_TIMER, 1000, None);
+                let sticky = self.notice.as_ref().and_then(|n| n.sticky);
+                let again = match sticky {
+                    Some(since) if last_input() == since => Some(1000),
+                    Some(_) => {
+                        if let Some(notice) = &mut self.notice {
+                            notice.sticky = None;
+                        }
+                        Some(self.config.notices.seconds as u32 * 2000)
                     }
-                } else {
-                    self.dismiss_notice(now());
-                    let _ = self.apply_all();
+                    None if self.cursor_on_notice() => Some(1000),
+                    None => None,
+                };
+                match again {
+                    Some(ms) => unsafe {
+                        SetTimer(Some(self.input_hwnd), NOTICE_TIMER, ms, None);
+                    },
+                    None => {
+                        self.dismiss_notice(now());
+                        let _ = self.apply_all();
+                    }
                 }
+                Some(LRESULT(0))
+            }
+            #[cfg(feature = "timers")]
+            WM_TIMER if wparam.0 == timers::RING_TIMER => {
+                let _ = self.tick_timers();
                 Some(LRESULT(0))
             }
             WM_TIMER if wparam.0 == NOTICE_GONE_TIMER => {
@@ -588,7 +633,7 @@ impl Orbit {
         }
         let owner = self.card.as_ref().and_then(|card| card.owner);
         if let Some(owner) = owner
-            && self.satellites[owner].kind == kind
+            && self.kind_at(owner) == Some(kind)
             && (kind != SatelliteKind::Music || changed)
         {
             self.paint_card(owner)?;
@@ -611,6 +656,10 @@ impl Orbit {
     }
 
     fn paint_card(&self, index: usize) -> Result<()> {
+        #[cfg(feature = "timers")]
+        if index >= self.satellites.len() {
+            return self.paint_timer_card(index);
+        }
         let satellite = &self.satellites[index];
         let (kind, color) = (satellite.kind, satellite.look.color);
         let Some(card) = &self.card else {
@@ -681,7 +730,8 @@ impl Orbit {
                 self.fade = self.fade.to(t, 0.0, FADE_SECS, Target::hold(1.0), false);
             }
         }
-        self.apply_all()
+        self.apply_all()?;
+        self.flush_notice()
     }
 
     pub fn set_radii(&mut self, radius_x: f32, radius_y: f32) -> Result<()> {
@@ -712,7 +762,20 @@ impl Orbit {
     }
 
     fn show_notice(&mut self, notice: info::Notice) -> Result<()> {
+        self.show_notice_at(notice, None, false)
+    }
+
+    fn show_notice_at(
+        &mut self,
+        notice: info::Notice,
+        from: Option<Vec2>,
+        sticky: bool,
+    ) -> Result<()> {
         if self.hidden || self.expanded || self.hub_open() || self.launcher_is_open() {
+            #[cfg(feature = "timers")]
+            if sticky {
+                self.pending_notice = Some(notice);
+            }
             return Ok(());
         }
         self.stop_timer(NOTICE_GONE_TIMER);
@@ -720,7 +783,8 @@ impl Orbit {
         let geo = self.geo;
         let mut view =
             scene::build_notice(&self.gfx, &geo, &self.overlay, &notice.text, notice.look)?;
-        view.owner = Some(notice.kind);
+        view.owner = notice.kind;
+        view.sticky = sticky.then(last_input);
         let x = (geo.center.x - view.width / 2.0 + view.reach).round();
         let below_orbit = geo.orbit.ry + geo.ring_radius * (1.0 + DEPTH_SCALE);
         let y = (geo.center.y + below_orbit + 6.0 * geo.scale + view.height / 2.0).round();
@@ -731,7 +795,11 @@ impl Orbit {
             view.height,
         );
         let t = now();
-        let from = self.owner_position(notice.kind, t);
+        let from = from.unwrap_or_else(|| {
+            notice
+                .kind
+                .map_or(self.geo.center, |kind| self.owner_position(kind, t))
+        });
         view.x = Channel::fixed(from.x).to(t, 0.0, NOTICE_IN_SECS, Target::hold(x), false);
         view.y = Channel::fixed(from.y).to(t, 0.0, NOTICE_IN_SECS, Target::hold(y), true);
         view.size = Channel::fixed(0.3).to(t, 0.0, NOTICE_IN_SECS, Target::hold(1.0), true);
@@ -812,6 +880,14 @@ impl Orbit {
             })
     }
 
+    fn flush_notice(&mut self) -> Result<()> {
+        #[cfg(feature = "timers")]
+        if let Some(notice) = self.pending_notice.take() {
+            return self.show_notice_at(notice, None, true);
+        }
+        Ok(())
+    }
+
     fn remove_notice(&mut self) {
         if let Some(view) = self.notice.take() {
             unsafe {
@@ -884,6 +960,11 @@ impl Orbit {
     fn expand(&mut self) -> Result<()> {
         self.expanded = true;
         self.ensure_labels()?;
+        #[cfg(feature = "timers")]
+        {
+            self.build_timer_labels()?;
+            self.schedule_ring();
+        }
         let t = now();
         self.dismiss_notice(t);
         self.retarget(t, SPREAD_SECS, true, 0.0);
@@ -897,7 +978,10 @@ impl Orbit {
         self.hide_card(t);
         self.retarget(t, RETURN_SECS, false, 0.0);
         self.set_input_region();
-        self.apply_all()
+        #[cfg(feature = "timers")]
+        self.schedule_ring();
+        self.apply_all()?;
+        self.flush_notice()
     }
 
     fn ensure_labels(&mut self) -> Result<()> {
@@ -924,6 +1008,8 @@ impl Orbit {
     fn hover_at(&mut self, point: Vec2) -> Result<()> {
         let current = self.card.as_ref().and_then(|card| card.owner);
         let hovered = self.satellite_at(point);
+        #[cfg(feature = "timers")]
+        let hovered = hovered.or_else(|| self.timer_at(point));
         // A satellite under the cursor wins over the open card: a wide card
         // can lie under a neighbouring satellite.
         if hovered.is_none() && current.is_some() && self.over_card(point) {
@@ -937,6 +1023,8 @@ impl Orbit {
             Some(index) => self.show_card(t, index)?,
             None => self.hide_card(t),
         }
+        #[cfg(feature = "timers")]
+        self.schedule_ring();
         self.set_input_region();
         self.apply_all()
     }
@@ -954,7 +1042,7 @@ impl Orbit {
             return false;
         };
         let (x, y, w, h) = card.rect;
-        let top = self.slot(owner).y;
+        let top = self.place(owner).y;
         point.x >= x && point.x <= x + w && point.y >= top && point.y <= y + h
     }
 
@@ -973,6 +1061,10 @@ impl Orbit {
         if self.hub_open() {
             return self.hub_click(point);
         }
+        #[cfg(feature = "timers")]
+        if self.expanded && self.timer_click(point) {
+            return Ok(());
+        }
         #[cfg(feature = "music")]
         if self.expanded {
             self.music_click(point)?;
@@ -985,8 +1077,9 @@ impl Orbit {
             self.card = Some(scene::build_card(&self.gfx, &self.geo, &self.overlay)?);
         }
         let geo = self.geo;
-        let slot = self.slot(index);
-        let (width, height) = scene::card_size(&geo, self.satellites[index].kind);
+        let slot = self.place(index);
+        let kind = self.kind_at(index).unwrap_or(SatelliteKind::Clock);
+        let (width, height) = scene::card_size(&geo, kind);
         let x = (slot.x - width / 2.0)
             .clamp(geo.margin, geo.width() - width - geo.margin)
             .round();
@@ -1039,6 +1132,8 @@ impl Orbit {
             s.alpha = s.alpha.to(t, delay, dur, goal.alpha, kick);
             s.shine = s.shine.to(t, delay, dur, shine, false);
         }
+        #[cfg(feature = "timers")]
+        self.retarget_timers(t, dur, kick);
         let (glow, glow_size) = self.halo_goal();
         let center = self.geo.center;
         let core = &mut self.core;
@@ -1066,8 +1161,12 @@ impl Orbit {
             };
         }
 
+        self.orbit_goal(self.satellites[index].phase, arrive)
+    }
+
+    fn orbit_goal(&self, phase: f64, arrive: f64) -> Goal {
         let e = self.geo.orbit;
-        let angle = self.clock.angle(arrive) + self.satellites[index].phase;
+        let angle = self.clock.angle(arrive) + phase;
         if !self.clock.running {
             let pos = e.pos(angle);
             let depth = e.depth(angle);
@@ -1144,6 +1243,18 @@ impl Orbit {
             PI / 2.0 + arc / 2.0 - arc * index as f64 / (count - 1) as f64
         };
         self.geo.center + Vec2::new(angle.cos(), angle.sin()) * self.geo.layout_radius
+    }
+
+    fn place(&self, index: usize) -> Vec2 {
+        #[cfg(feature = "timers")]
+        if index >= self.satellites.len() {
+            return self.timer_slot(index - self.satellites.len());
+        }
+        self.slot(index)
+    }
+
+    fn kind_at(&self, index: usize) -> Option<SatelliteKind> {
+        self.satellites.get(index).map(|s| s.kind)
     }
 
     // Own one-shot hover timer: TME_HOVER waits until the cursor rests inside
@@ -1296,6 +1407,8 @@ impl Orbit {
             )?;
             #[cfg(feature = "launcher")]
             self.bind_launcher()?;
+            #[cfg(feature = "timers")]
+            self.apply_timers()?;
             self.gfx.dcomp.Commit()
         }
     }
@@ -1359,8 +1472,16 @@ impl Orbit {
                 && let Some(owner) = card.owner
             {
                 let (x, y, w, h) = card.rect;
-                let top = self.slot(owner).y;
+                let top = self.place(owner).y;
                 let strip = CreateRectRgn(x as i32, top as i32, (x + w) as i32, (y + h) as i32);
+                CombineRgn(Some(region), Some(region), Some(strip), RGN_OR);
+                let _ = DeleteObject(strip.into());
+            }
+            #[cfg(feature = "timers")]
+            if self.expanded
+                && let Some((left, top, right, bottom)) = self.timer_region()
+            {
+                let strip = CreateRectRgn(left, top, right, bottom);
                 CombineRgn(Some(region), Some(region), Some(strip), RGN_OR);
                 let _ = DeleteObject(strip.into());
             }
@@ -1606,7 +1727,8 @@ impl Orbit {
             hub.open = false;
         }
         self.set_input_region();
-        self.apply_all()
+        self.apply_all()?;
+        self.flush_notice()
     }
 
     fn hub_tile_at(&self, point: Vec2) -> Option<usize> {
@@ -1793,13 +1915,13 @@ impl Orbit {
     fn music_card_origin(&self) -> Option<(f64, f64)> {
         let card = self.card.as_ref()?;
         let owner = card.owner?;
-        (self.satellites[owner].kind == SatelliteKind::Music).then_some((card.rect.0, card.rect.1))
+        (self.kind_at(owner) == Some(SatelliteKind::Music)).then_some((card.rect.0, card.rect.1))
     }
 
     fn repaint_music_card(&mut self) -> Result<()> {
         let owner = self.card.as_ref().and_then(|card| card.owner);
         if let Some(owner) = owner
-            && self.satellites[owner].kind == SatelliteKind::Music
+            && self.kind_at(owner) == Some(SatelliteKind::Music)
         {
             self.paint_card(owner)?;
             unsafe { self.gfx.dcomp.Commit()? };
@@ -1810,6 +1932,17 @@ impl Orbit {
 
 fn inside(point: Vec2, (x, y, w, h): (f64, f64, f64, f64)) -> bool {
     point.x >= x && point.x <= x + w && point.y >= y && point.y <= y + h
+}
+
+fn last_input() -> u32 {
+    let mut info = LASTINPUTINFO {
+        cbSize: size_of::<LASTINPUTINFO>() as u32,
+        dwTime: 0,
+    };
+    unsafe {
+        let _ = GetLastInputInfo(&mut info);
+    }
+    info.dwTime
 }
 
 fn point_from(lparam: LPARAM) -> Vec2 {
@@ -1893,7 +2026,7 @@ impl Orbit {
         }
         let owner = self.card.as_ref().and_then(|card| card.owner);
         if let Some(owner) = owner
-            && self.satellites[owner].kind == SatelliteKind::Music
+            && self.kind_at(owner) == Some(SatelliteKind::Music)
         {
             self.paint_card(owner)?;
             self.gfx.trim();

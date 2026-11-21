@@ -46,6 +46,10 @@ use crate::orbit::Orbit;
 use crate::power::PowerEvent;
 #[cfg(feature = "orbit")]
 use crate::power::{self, PowerWatch};
+#[cfg(feature = "timers")]
+use crate::reminders::{self, Alarm, Reminder};
+#[cfg(feature = "timers")]
+use crate::sound;
 #[cfg(feature = "update")]
 use crate::update::{self, Mode as UpdateMode, Outcome, Updater};
 #[cfg(feature = "update")]
@@ -72,6 +76,11 @@ const RESTART_DELAY_MS: u32 = 2000;
 const RESTART_TRIES: u32 = 5;
 
 pub const WM_SCREEN_CHANGED: u32 = WM_APP + 4;
+
+#[cfg(feature = "timers")]
+pub const WM_REMINDERS: u32 = WM_APP + 7;
+#[cfg(feature = "timers")]
+const MISSED_SECS: i64 = 60;
 
 const CMD_EXIT: u32 = 100;
 const CMD_AUTOSTART: u32 = 105;
@@ -176,6 +185,10 @@ struct App {
     update_install: bool,
     #[cfg(feature = "update")]
     just_updated: bool,
+    #[cfg(feature = "timers")]
+    reminders: Vec<Reminder>,
+    #[cfg(feature = "timers")]
+    alarm: Option<Alarm>,
 }
 
 thread_local! {
@@ -240,9 +253,15 @@ pub fn run(updated: bool) -> Result<()> {
         update_install: false,
         #[cfg(feature = "update")]
         just_updated: updated,
+        #[cfg(feature = "timers")]
+        reminders: Vec::new(),
+        #[cfg(feature = "timers")]
+        alarm: None,
     };
     #[cfg(feature = "orbit")]
     app.start_orbit();
+    #[cfg(feature = "timers")]
+    app.reload_reminders();
     #[cfg(feature = "launcher")]
     app.sync_hotkey();
     #[cfg(feature = "update")]
@@ -277,7 +296,7 @@ pub fn run(updated: bool) -> Result<()> {
 fn message_loop(watch: Option<&DirWatch>) {
     let mut msg = MSG::default();
     loop {
-        let mut handles = [HANDLE::default(); 2];
+        let mut handles = [HANDLE::default(); 3];
         let mut count = 0;
         if let Some(watch) = watch {
             handles[count] = watch.handle();
@@ -286,6 +305,11 @@ fn message_loop(watch: Option<&DirWatch>) {
         #[cfg(feature = "orbit")]
         if let Some(Some(lost)) = with_app(|app| app.device_lost_event()) {
             handles[count] = lost;
+            count += 1;
+        }
+        #[cfg(feature = "timers")]
+        if let Some(Some(alarm)) = with_app(|app| app.alarm.as_ref().map(Alarm::handle)) {
+            handles[count] = alarm;
             count += 1;
         }
         let handles = &handles[..count];
@@ -298,6 +322,13 @@ fn message_loop(watch: Option<&DirWatch>) {
             (Some(watch), Some(&handle)) if handle == watch.handle() => {
                 watch.rearm();
                 with_app(|app| app.config_file_changed());
+            }
+            #[cfg(feature = "timers")]
+            (_, Some(&handle))
+                if with_app(|app| app.alarm.as_ref().map(Alarm::handle) == Some(handle))
+                    == Some(true) =>
+            {
+                with_app(|app| app.fire_due());
             }
             #[cfg(feature = "orbit")]
             (_, Some(_)) => {
@@ -416,6 +447,13 @@ impl App {
                     let _ = KillTimer(Some(self.hwnd), RELOAD_TIMER);
                 }
                 self.reload_config();
+                #[cfg(feature = "timers")]
+                self.reload_reminders();
+                Some(LRESULT(0))
+            }
+            #[cfg(feature = "timers")]
+            WM_REMINDERS => {
+                self.reload_reminders();
                 Some(LRESULT(0))
             }
             #[cfg(feature = "update")]
@@ -457,10 +495,14 @@ impl App {
                         orbit.refresh_battery()?;
                         orbit.check_low_battery()
                     }),
-                    Some(PowerEvent::Resumed) => self.with_orbit(|orbit| {
-                        orbit.refresh_battery()?;
-                        orbit.refresh_clock()
-                    }),
+                    Some(PowerEvent::Resumed) => {
+                        self.with_orbit(|orbit| {
+                            orbit.refresh_battery()?;
+                            orbit.refresh_clock()
+                        });
+                        #[cfg(feature = "timers")]
+                        self.fire_due();
+                    }
                     None => {}
                 }
                 Some(LRESULT(1))
@@ -476,6 +518,8 @@ impl App {
             #[cfg(feature = "orbit")]
             WM_TIMECHANGE => {
                 self.with_orbit(|orbit| orbit.refresh_clock());
+                #[cfg(feature = "timers")]
+                self.fire_due();
                 Some(LRESULT(0))
             }
             #[cfg(feature = "orbit")]
@@ -830,6 +874,8 @@ impl App {
         }
         self.orbit = Some(orbit);
         self.sync_hub();
+        #[cfg(feature = "timers")]
+        self.show_timers();
         Ok(())
     }
 
@@ -1092,6 +1138,67 @@ impl App {
                 tr("Moonlet: обновление не удалось", "Moonlet: update failed"),
                 reason,
             ),
+        }
+    }
+}
+
+#[cfg(feature = "timers")]
+impl App {
+    fn reload_reminders(&mut self) {
+        let list = reminders::load();
+        if list != self.reminders {
+            self.reminders = list;
+            self.show_timers();
+        }
+        self.fire_due();
+    }
+
+    fn show_timers(&mut self) {
+        if let Some(orbit) = &mut self.orbit {
+            let _ = orbit.set_timers(&self.reminders);
+        }
+    }
+
+    fn fire_due(&mut self) {
+        let now = reminders::now();
+        let due: Vec<Reminder> = self
+            .reminders
+            .iter()
+            .filter(|r| r.due <= now)
+            .cloned()
+            .collect();
+        let first = due.iter().find(|r| !r.text.is_empty()).or(due.first());
+        if let Some(first) = first {
+            self.reminders.retain(|r| r.due > now);
+            let _ = reminders::save(&self.reminders);
+            sound::play(&self.config.timer_sound);
+            let mut text = first.fire_text();
+            if now - first.due > MISSED_SECS {
+                text = format!("{}: {text}", tr("Пропущено", "Missed"));
+            }
+            if due.len() > 1 {
+                text = format!("{text} (+{})", due.len() - 1);
+            }
+            match &mut self.orbit {
+                Some(orbit) => {
+                    let _ = orbit.timer_fired(first, text);
+                }
+                None => self
+                    .tray
+                    .inform(tr("Moonlet: пора", "Moonlet: time's up"), &text),
+            }
+            self.show_timers();
+        }
+        match self.reminders.first() {
+            Some(next) => {
+                if self.alarm.is_none() {
+                    self.alarm = Alarm::new();
+                }
+                if let Some(alarm) = &self.alarm {
+                    alarm.set(next.due);
+                }
+            }
+            None => self.alarm = None,
         }
     }
 }

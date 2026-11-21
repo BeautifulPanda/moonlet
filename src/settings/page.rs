@@ -22,6 +22,8 @@ pub enum Section {
     Quick,
     #[cfg(feature = "launcher")]
     Launcher,
+    #[cfg(feature = "timers")]
+    Timers,
     About,
 }
 
@@ -35,6 +37,8 @@ impl Section {
             Section::Quick,
             #[cfg(feature = "launcher")]
             Section::Launcher,
+            #[cfg(feature = "timers")]
+            Section::Timers,
             Section::About,
         ]
     }
@@ -48,6 +52,8 @@ impl Section {
             Section::Quick => tr("Быстрый доступ", "Quick access"),
             #[cfg(feature = "launcher")]
             Section::Launcher => tr("Командная строка", "Command line"),
+            #[cfg(feature = "timers")]
+            Section::Timers => tr("Таймеры", "Timers"),
             Section::About => tr("О программе", "About"),
         }
     }
@@ -61,6 +67,8 @@ impl Section {
             Section::Quick => 0x4FD1C5,
             #[cfg(feature = "launcher")]
             Section::Launcher => 0xB794F4,
+            #[cfg(feature = "timers")]
+            Section::Timers => 0xF687B3,
             Section::About => 0x6F7584,
         }
     }
@@ -123,6 +131,14 @@ pub enum Setting {
     Search,
     #[cfg(feature = "launcher")]
     SearchUrl,
+    #[cfg(feature = "timers")]
+    TimerSound,
+    #[cfg(feature = "timers")]
+    TimerSoundFile,
+    #[cfg(feature = "timers")]
+    TimerSoundTest,
+    #[cfg(feature = "timers")]
+    CancelReminder(usize),
     OpenFile,
     Website,
 }
@@ -244,9 +260,30 @@ pub struct Ui {
     pub app_query: String,
     #[cfg(feature = "orbit")]
     pub apps: Vec<crate::apps::App>,
+    #[cfg(feature = "timers")]
+    pub reminders: Vec<crate::reminders::Reminder>,
+    #[cfg(feature = "timers")]
+    pub custom_sound: bool,
 }
 
 const NEWS: [(&str, &[(&str, &str)]); 2] = [
+    (
+        "0.6.0",
+        &[
+            (
+                "Таймеры и напоминания из командной строки: «таймер 10 мин», «напомни через 20 мин …», «в 15:30 …», «завтра в 9 …». Переживают перезапуск и сон.",
+                "Timers and reminders from the command line: \"timer 10 min\", \"remind me in 20 min …\", \"at 15:30 …\", \"tomorrow at 9 …\". They survive restarts and sleep.",
+            ),
+            (
+                "Каждый таймер — маленький розовый спутник на орбите, кольцо показывает, сколько осталось. Наведите на орбиту — увидите время, в карточке можно отменить.",
+                "Each timer is a small pink satellite on the orbit; its ring shows the time left. Hover the orbit to see the time; the card can cancel it.",
+            ),
+            (
+                "Срабатывание — надпись, которая ждёт, пока вы вернётесь к компьютеру, и мягкий звук. Свой .wav или тишина — в разделе «Таймеры».",
+                "When time is up, a note waits until you're back at the computer, with a soft chime. Pick your own .wav or silence under Timers.",
+            ),
+        ],
+    ),
     (
         "0.5.0",
         &[
@@ -261,23 +298,6 @@ const NEWS: [(&str, &[(&str, &str)]); 2] = [
             (
                 "Системные команды: сон, заблокировать, выключить, перезагрузка, очистить корзину. Выключение, перезагрузка и корзина срабатывают со второго Enter.",
                 "System commands: sleep, lock, shut down, restart, empty the Recycle Bin. Shutting down, restarting and emptying the bin need a second Enter.",
-            ),
-        ],
-    ),
-    (
-        "0.4.0",
-        &[
-            (
-                "«Быстрый доступ»: плитки хаба настраиваются — действия Moonlet (скриншот, командная строка, музыка, вращение, форма, настройки) и свои: программа, файл, папка, сайт, команда строки.",
-                "Quick access: hub tiles are yours to choose: Moonlet actions (screenshot, command line, music, rotation, shape, settings) and your own: an app, a file, a folder, a site, a command line text.",
-            ),
-            (
-                "Программу находит поиск по меню «Пуск», файл и папку — окно выбора Windows; порядок — стрелками, лишнее — крестиком.",
-                "Find an app by searching the Start menu, pick a file or folder in the Windows dialog; arrows change the order, the cross removes a tile.",
-            ),
-            (
-                "Карточка спутника больше не прячется под подписью соседнего спутника.",
-                "A satellite card no longer hides under the label of the next satellite.",
             ),
         ],
     ),
@@ -340,6 +360,8 @@ pub fn rows(section: Section, config: &Config, ui: &Ui) -> Vec<Row> {
         Section::Quick => quick(&mut rows, config, ui),
         #[cfg(feature = "launcher")]
         Section::Launcher => launcher(&mut rows, config, ui),
+        #[cfg(feature = "timers")]
+        Section::Timers => timers(&mut rows, config, ui),
         Section::About => about(&mut rows),
     }
     rows
@@ -922,6 +944,78 @@ fn launcher(rows: &mut Vec<Row>, config: &Config, ui: &Ui) {
     }
 }
 
+#[cfg(feature = "timers")]
+fn sound_choice(config: &Config, ui: &Ui) -> usize {
+    match config.timer_sound.as_str() {
+        _ if ui.custom_sound => 1,
+        crate::sound::OFF => 2,
+        "" | crate::sound::DROP => 0,
+        _ => 1,
+    }
+}
+
+#[cfg(feature = "timers")]
+fn timers(rows: &mut Vec<Row>, config: &Config, ui: &Ui) {
+    use crate::reminders;
+    rows.push(Row::caption(tr("Звук", "Sound")));
+    let choice = sound_choice(config, ui);
+    rows.push(Row::new(
+        Setting::TimerSound,
+        tr("Когда срабатывает", "When it goes off"),
+        "",
+        Control::Choice(
+            vec![
+                tr("Капля", "Chime"),
+                tr("Свой файл", "Own file"),
+                tr("Без звука", "Silent"),
+            ],
+            Some(choice),
+        ),
+    ));
+    if choice == 1 {
+        let path = std::path::Path::new(&config.timer_sound);
+        let name = match path.file_name() {
+            Some(name) if sound_choice(config, &Ui::default()) == 1 => {
+                name.to_string_lossy().into_owned()
+            }
+            _ => tr("Файл .wav не выбран", "No .wav file chosen").to_string(),
+        };
+        rows.push(Row::new(
+            Setting::TimerSoundFile,
+            tr("Файл", "File"),
+            &name,
+            Control::Button(tr("Выбрать…", "Choose…")),
+        ));
+    }
+    rows.push(
+        Row::new(
+            Setting::TimerSoundTest,
+            tr("Проверить", "Try it"),
+            "",
+            Control::Button(tr("Послушать", "Play")),
+        )
+        .dim(choice == 2),
+    );
+
+    rows.push(Row::caption(tr("Активные", "Active")));
+    if ui.reminders.is_empty() {
+        rows.push(Row::info(tr(
+            "Пусто. В строке: «таймер 10 мин», «напомни в 15:30 …»",
+            "None. In the command line: \"timer 10 min\", \"remind me at 15:30 …\"",
+        )));
+    }
+    let now = reminders::now();
+    for (index, r) in ui.reminders.iter().enumerate() {
+        let when = reminders::due_text(r.due, now);
+        rows.push(Row::new(
+            Setting::CancelReminder(index),
+            &r.title(),
+            &format!("{} {when}", tr("Сработает в", "Goes off at")),
+            Control::Button(tr("Отменить", "Cancel")),
+        ));
+    }
+}
+
 fn about(rows: &mut Vec<Row>) {
     rows.push(Row::caption("Moonlet"));
     rows.push(Row {
@@ -986,6 +1080,30 @@ pub fn apply(config: &mut Config, ui: &mut Ui, setting: Setting, change: Change)
             let (language, name) = Language::ALL[i.min(2)];
             config.language = language;
             vec![write("general", "language", format!("\"{name}\""))]
+        }
+        #[cfg(feature = "timers")]
+        (Setting::TimerSound, Pick(i)) => {
+            ui.custom_sound = i == 1;
+            if i == 1 {
+                return Vec::new();
+            }
+            let value = if i == 2 {
+                crate::sound::OFF
+            } else {
+                crate::sound::DROP
+            };
+            config.timer_sound = value.to_string();
+            vec![write("timers", "sound", format!("\"{value}\""))]
+        }
+        #[cfg(feature = "timers")]
+        (Setting::TimerSoundFile, Text(path)) => {
+            ui.custom_sound = false;
+            config.timer_sound = path;
+            vec![write(
+                "timers",
+                "sound",
+                crate::config::quoted(&config.timer_sound),
+            )]
         }
         (Setting::Autostart, Toggle) => {
             config.autostart = !config.autostart;
@@ -1250,6 +1368,15 @@ mod tests {
         ]);
         #[cfg(feature = "update")]
         steps.push((Setting::UpdateMode, Change::Pick(1)));
+        #[cfg(feature = "timers")]
+        steps.extend([
+            (Setting::TimerSound, Change::Pick(2)),
+            (
+                Setting::TimerSoundFile,
+                Change::Text("C:\\Media\\bell.wav".into()),
+            ),
+            (Setting::TimerSound, Change::Pick(0)),
+        ]);
         #[cfg(feature = "launcher")]
         steps.extend([
             (Setting::LauncherModule, Change::Toggle),

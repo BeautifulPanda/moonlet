@@ -169,6 +169,10 @@ fn open(config: Config, file_error: Option<String>, news: bool) -> Result<()> {
     {
         ui.has_battery = crate::power::has_battery();
     }
+    #[cfg(feature = "timers")]
+    {
+        ui.reminders = crate::reminders::load();
+    }
     let mut settings = Settings {
         hwnd,
         config,
@@ -973,6 +977,22 @@ impl Settings {
                     self.change(setting, Change::Text(path));
                 }
             }
+            #[cfg(feature = "timers")]
+            Setting::TimerSoundFile => {
+                if let Some(path) = choose::sound(self.hwnd) {
+                    self.change(setting, Change::Text(path));
+                }
+            }
+            #[cfg(feature = "timers")]
+            Setting::TimerSoundTest => crate::sound::play(&self.config.timer_sound),
+            #[cfg(feature = "timers")]
+            Setting::CancelReminder(index) => {
+                if let Some(r) = self.ui.reminders.get(index) {
+                    crate::reminders::remove(r.id);
+                }
+                self.ui.reminders = crate::reminders::load();
+                self.refresh();
+            }
             Setting::OpenFile => config::open_in_notepad(),
             Setting::Website => unsafe {
                 ShellExecuteW(
@@ -1290,6 +1310,14 @@ impl Settings {
     }
 
     fn reload_file(&mut self) {
+        #[cfg(feature = "timers")]
+        {
+            let list = crate::reminders::load();
+            if list != self.ui.reminders {
+                self.ui.reminders = list;
+                self.refresh();
+            }
+        }
         match Config::load() {
             Ok(config) => {
                 let had_error = self.ui.file_error.take().is_some();

@@ -277,6 +277,12 @@ pub fn card_size(geo: &Geometry, kind: SatelliteKind) -> (f64, f64) {
     }
 }
 
+pub fn cancel_button(geo: &Geometry) -> Rect {
+    let s = geo.scale;
+    let (width, _) = card_size(geo, SatelliteKind::Clock);
+    (width - 34.0 * s, 8.0 * s, 26.0 * s, 22.0 * s)
+}
+
 #[cfg(feature = "music")]
 pub fn music_buttons(geo: &Geometry) -> [(f64, f64, f64, f64); 3] {
     let s = geo.scale;
@@ -329,12 +335,41 @@ pub fn build_card(gfx: &Gfx, geo: &Geometry, parent: &IDCompositionVisual2) -> R
 impl CardView {
     pub fn paint(&self, gfx: &Gfx, geo: &Geometry, kind: SatelliteKind, color: u32) -> Result<()> {
         let card = info::card(kind);
+        self.paint_lines(
+            gfx,
+            geo,
+            card.title,
+            &card.value,
+            &card.detail,
+            color,
+            false,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn paint_lines(
+        &self,
+        gfx: &Gfx,
+        geo: &Geometry,
+        title: &str,
+        value: &str,
+        detail: &str,
+        color: u32,
+        cancel: bool,
+    ) -> Result<()> {
         let s = geo.scale as f32;
-        let (width, height) = card_size(geo, kind);
+        let (width, height) = card_size(geo, SatelliteKind::Clock);
         let (width, height) = (width as f32, height as f32);
-        let title = gfx.text(card.title, 11.0 * s, false)?;
-        let value = gfx.text(&card.value, 20.0 * s, true)?;
-        let detail = gfx.text(&card.detail, 11.0 * s, false)?;
+        let text_width = Some(width - 26.0 * s - if cancel { 30.0 * s } else { 0.0 });
+        let title = gfx.text_fit(title, 11.0 * s, false, text_width)?;
+        let value = gfx.text(value, 20.0 * s, true)?;
+        let detail = gfx.text_fit(detail, 11.0 * s, false, Some(width - 26.0 * s))?;
+        let cross = if cancel {
+            Some(gfx.icon('\u{E711}', 10.0 * s)?)
+        } else {
+            None
+        };
+        let button = cancel_button(geo);
         gfx.draw(
             &self.surface,
             geo.card_width as u32,
@@ -354,6 +389,26 @@ impl CardView {
                 p.text(&value, left, y, gfx::rgb(TEXT_COLOR, 1.0));
                 y += value.height;
                 p.text(&detail, left, y, gfx::rgb(DIM_TEXT_COLOR, 1.0));
+                if let Some(cross) = &cross {
+                    let (x, y, w, h) = (
+                        button.0 as f32,
+                        button.1 as f32,
+                        button.2 as f32,
+                        button.3 as f32,
+                    );
+                    p.rounded_rect(
+                        (x, y, w, h),
+                        6.0 * s,
+                        gfx::rgb(0xFFFFFF, 0.06),
+                        (0.0, gfx::rgb(0, 0.0)),
+                    );
+                    p.text(
+                        cross,
+                        x + (w - cross.width) / 2.0,
+                        y + (h - cross.height) / 2.0,
+                        gfx::rgb(TEXT_COLOR, 1.0),
+                    );
+                }
             },
         )
     }
@@ -700,6 +755,7 @@ pub struct NoticeView {
     pub rect: Rect,
     pub hiding: bool,
     pub owner: Option<SatelliteKind>,
+    pub sticky: Option<u32>,
 }
 
 pub fn build_notice(
@@ -813,6 +869,7 @@ pub fn build_notice(
             rect: (0.0, 0.0, 0.0, 0.0),
             hiding: false,
             owner: None,
+            sticky: None,
         })
     }
 }

@@ -19,6 +19,8 @@ pub enum Action {
     Open(String),
     Search(String),
     Complete(String),
+    #[cfg(feature = "timers")]
+    Remind(crate::reminders::Request),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -54,6 +56,8 @@ impl Command {
 pub struct Context {
     pub music: bool,
     pub bluetooth: Option<bool>,
+    #[cfg_attr(not(feature = "timers"), allow(dead_code))]
+    pub reminders_full: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -324,6 +328,11 @@ pub fn suggestions(text: &str, apps: &[App], context: Context, files: &[Found]) 
         });
     }
 
+    #[cfg(feature = "timers")]
+    if let Some(item) = reminder_item(query, context.reminders_full) {
+        items.push(item);
+    }
+
     let mut scored: Vec<(i32, Item)> = Vec::new();
     for (query, penalty) in &variants {
         let (query, penalty) = (query.as_str(), *penalty);
@@ -459,6 +468,82 @@ fn command_items(query: &str, context: Context) -> Vec<(i32, Item)> {
     found
 }
 
+#[cfg(feature = "timers")]
+fn reminder_item(query: &str, full: bool) -> Option<Item> {
+    use crate::reminders::{self, is_remind_word, is_timer_word};
+    let lower = query.to_lowercase();
+    let first = lower.split_whitespace().next()?;
+    let single = !lower.trim().contains(' ');
+    let starts = |word: &str| first.chars().count() >= 3 && word.starts_with(first);
+    let timer = is_timer_word(first) || (single && (starts("таймер") || starts("timer")));
+    let remind = is_remind_word(first) || (single && (starts("напомни") || starts("remind")));
+    if !timer && !remind {
+        return None;
+    }
+    let item = |glyph, title: String, hint: &str, action| Item {
+        glyph,
+        title,
+        hint: hint.to_string(),
+        strong: false,
+        confirm: false,
+        action,
+    };
+    let glyph = if timer { '\u{E916}' } else { '\u{E823}' };
+    if let Some(request) = reminders::parse(query)
+        && request.resolve(reminders::now()).is_some()
+    {
+        if full {
+            return Some(item(
+                glyph,
+                tr(
+                    "Уже 20 напоминаний — отмените лишние в настройках",
+                    "Already 20 reminders, cancel some in the settings",
+                )
+                .to_string(),
+                "Moonlet",
+                Action::Complete(query.to_string()),
+            ));
+        }
+        return Some(Item {
+            strong: true,
+            ..item(
+                glyph,
+                request.title(),
+                tr("Enter — запустить", "Enter to start"),
+                Action::Remind(request),
+            )
+        });
+    }
+    let (title, word) = if timer {
+        (
+            tr(
+                "Таймер: «таймер 10 мин» или «таймер до 11:10»",
+                "Timer: \"timer 10 min\" or \"timer until 11:10\"",
+            ),
+            tr("таймер ", "timer "),
+        )
+    } else {
+        (
+            tr(
+                "Напомнить: «через 20 мин …», «в 15:30 …», «завтра в 9 …»",
+                "Remind: \"in 20 min …\", \"at 15:30 …\", \"tomorrow at 9 …\"",
+            ),
+            tr("напомни ", "remind me "),
+        )
+    };
+    let text = if single {
+        word.to_string()
+    } else {
+        query.to_string()
+    };
+    Some(item(
+        glyph,
+        title.to_string(),
+        "Moonlet",
+        Action::Complete(text),
+    ))
+}
+
 fn volume_item(query: &str) -> Option<(i32, Item)> {
     let mut parts = query.split_whitespace();
     let word = parts.next()?;
@@ -589,6 +674,7 @@ mod tests {
     const MUSIC: Context = Context {
         music: true,
         bluetooth: Some(false),
+        reminders_full: false,
     };
 
     fn titles(text: &str, apps: &[App]) -> Vec<String> {
@@ -716,6 +802,25 @@ mod tests {
         let items = suggestions("пауза", &[], Context::default(), &[]);
         assert_eq!(items.len(), 1);
         assert!(suggestions("   ", &[], MUSIC, &[]).is_empty());
+    }
+
+    #[cfg(feature = "timers")]
+    #[test]
+    fn offers_timers_and_reminders() {
+        crate::lang::set(crate::lang::Language::Russian);
+        let first = |text: &str| suggestions(text, &[], MUSIC, &[]).remove(0);
+        let item = first("таймер 10 мин");
+        assert!(matches!(item.action, Action::Remind(_)));
+        assert_eq!(item.title, "Таймер на 10 мин");
+        assert_eq!(
+            first("напомни через 20 мин позвонить").title,
+            "Напомнить через 20 мин: позвонить"
+        );
+        assert_eq!(first("тайм").action, Action::Complete("таймер ".into()));
+        assert!(matches!(
+            first("напомни позвонить").action,
+            Action::Complete(_)
+        ));
     }
 
     #[test]

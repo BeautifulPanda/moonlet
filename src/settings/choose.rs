@@ -9,6 +9,29 @@ use windows::core::{HSTRING, PCWSTR, w};
 
 use crate::lang::tr;
 
+#[cfg(feature = "timers")]
+pub fn sound(owner: HWND) -> Option<String> {
+    unsafe {
+        let dialog: IFileOpenDialog =
+            CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
+        let options = dialog.GetOptions().ok()? | FOS_FORCEFILESYSTEM;
+        dialog.SetOptions(options).ok()?;
+        let _ = dialog.SetTitle(&HSTRING::from(tr("Звук таймера", "Timer sound")));
+        let name = HSTRING::from(tr("Звуки WAV", "WAV sounds"));
+        let filters = [COMDLG_FILTERSPEC {
+            pszName: PCWSTR(name.as_ptr()),
+            pszSpec: w!("*.wav"),
+        }];
+        let _ = dialog.SetFileTypes(&filters);
+        dialog.Show(Some(owner)).ok()?;
+        let item = dialog.GetResult().ok()?;
+        let path = item.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
+        let text = path.to_string().ok();
+        CoTaskMemFree(Some(path.0 as *const _));
+        text
+    }
+}
+
 pub fn path(owner: HWND, folder: bool, programs: bool) -> Option<String> {
     unsafe {
         let dialog: IFileOpenDialog =

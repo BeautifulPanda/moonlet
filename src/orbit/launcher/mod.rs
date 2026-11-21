@@ -256,6 +256,8 @@ impl Orbit {
             Action::Search(query) => shell::web_search(&query, search),
             Action::Copy(answer) => crate::clipboard::copy(self.input_hwnd, &answer),
             Action::Command(command) => self.run_command(command),
+            #[cfg(feature = "timers")]
+            Action::Remind(request) => self.add_reminder(&request),
             Action::Complete(text) => {
                 self.toggle_launcher(search)?;
                 if let Some(launcher) = &mut self.launcher {
@@ -271,6 +273,10 @@ impl Orbit {
         Context {
             music: self.has_music(),
             bluetooth: self.bluetooth_state(),
+            #[cfg(feature = "timers")]
+            reminders_full: self.reminders_full(),
+            #[cfg(not(feature = "timers"))]
+            reminders_full: false,
         }
     }
 
@@ -300,6 +306,7 @@ impl Orbit {
         }
         drop(launcher);
         let t = now();
+        self.flush_notice()?;
         if let Some(view) = &mut self.launcher_view {
             view.hiding = true;
             view.alpha = view
@@ -454,6 +461,12 @@ impl Orbit {
             Action::Command(command) => {
                 self.close_launcher(true)?;
                 self.run_command(command);
+                Ok(())
+            }
+            #[cfg(feature = "timers")]
+            Action::Remind(request) => {
+                self.close_launcher(true)?;
+                self.add_reminder(&request);
                 Ok(())
             }
         }

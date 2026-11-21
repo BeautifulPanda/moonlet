@@ -28,6 +28,8 @@ pub struct Config {
     pub launcher_enabled: bool,
     #[cfg(feature = "launcher")]
     pub launcher: LauncherConfig,
+    #[cfg(feature = "timers")]
+    pub timer_sound: String,
 }
 
 #[cfg(feature = "launcher")]
@@ -65,6 +67,8 @@ impl Default for Config {
             launcher_enabled: true,
             #[cfg(feature = "launcher")]
             launcher: LauncherConfig::default(),
+            #[cfg(feature = "timers")]
+            timer_sound: crate::sound::DROP.to_string(),
         }
     }
 }
@@ -291,6 +295,8 @@ impl Config {
             read.hotkey("launcher", "hotkey", &mut config.launcher.hotkey)?;
             read.string("launcher", "search", &mut config.launcher.search)?;
         }
+        #[cfg(feature = "timers")]
+        read.string("timers", "sound", &mut config.timer_sound)?;
         Ok(config)
     }
 
@@ -386,6 +392,19 @@ impl Config {
         #[cfg(feature = "launcher")]
         {
             text += &launcher_toml(&self.launcher);
+        }
+        #[cfg(feature = "timers")]
+        {
+            text += "\n[timers]\n";
+            text += &comment(
+                "Таймеры и напоминания ставятся из командной строки: «таймер 10 мин», «напомни в 15:30 …».",
+                "Timers and reminders come from the command line: \"timer 10 min\", \"remind me at 15:30 …\".",
+            );
+            text += &comment(
+                "Звук: \"drop\" (мягкая «Капля»), \"off\" (без звука) или путь к файлу .wav.",
+                "Sound: \"drop\" (a soft chime), \"off\" (silent) or a path to a .wav file.",
+            );
+            text += &format!("sound = {}\n", quoted(&self.timer_sound));
         }
         #[cfg(feature = "update")]
         {
