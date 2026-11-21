@@ -35,17 +35,23 @@ views, no GUI frameworks.
   current track with cover art, playback buttons and system volume. The mouse
   wheel over the music satellite changes the volume.
 - **Click the core** to open the hub: Moonlet actions (area screenshot, command
-  line, music, pause the orbit, circle or oval, settings) and your own tiles —
-  apps, files, folders, websites and command line texts like `volume 30`.
-  Pick them and their order in Settings → Quick access.
+  line, music, Bluetooth, pause the orbit, circle or oval, settings) and your
+  own tiles — apps, files, folders, websites and command line texts like
+  `volume 30`. Pick them and their order in Settings → Quick access.
+  The Bluetooth tile turns it on or off; hold it (or right-click) for the
+  Windows devices page.
 - **Temporary satellites.** Plugging the charger in or out and a low battery
   (20% and 10%) send a small copy of the battery satellite out with a short
   note. A new song can do the same (off by default).
 - **Command line.** `Ctrl+Alt+Space` slides a field out of the core:
   - apps from the Start menu (it understands a wrong keyboard layout and
     Russian typed for English names: `ntktuhfv` finds Telegram);
+  - files and folders from the Windows Search index; the empty field shows
+    recent files. Enter opens, Ctrl+Enter shows the file in its folder;
   - Moonlet commands: `pause`, `next`, `back`, `volume 30`, `circle`, `oval`,
-    `rotate`, `screenshot`, `settings` (Russian words work too);
+    `rotate`, `screenshot`, `settings`, `bluetooth` (Russian words work too);
+  - system commands: `sleep`, `lock`, `shutdown`, `restart`, `empty bin`.
+    Shut down, restart and emptying the bin run only on a second Enter;
   - a calculator: `(1,5+2)*3`, `2^10`, `15%`, `√16`; Enter copies the answer;
   - `github.com` opens the site, anything else searches the web with your
     default browser's search engine.
@@ -91,7 +97,7 @@ hotkey = "Ctrl+Alt+Space"
 search = ""   # empty: the browser's engine, or e.g. "https://duckduckgo.com/?q="
 
 [hub]
-# Moonlet actions: screenshot, launcher, play, next, previous, rotation, shape, settings.
+# Moonlet actions: screenshot, launcher, play, next, previous, bluetooth, rotation, shape, settings.
 # Own tiles: "app:path", "file:path", "folder:path", "url:address", "cmd:text"; a name after |.
 tiles = ["screenshot", "launcher", "url:https://github.com|GitHub", "settings"]
 ```
@@ -124,7 +130,6 @@ without music and updates.
 
 ### Plans
 
-- Bluetooth toggle; files, folders and system commands in the command line.
 - Notes and reminders.
 - Scenarios: open a set of apps and put the windows in place with one word.
 - Games: FPS counter (optional, off by default).
@@ -162,17 +167,24 @@ DirectComposition — без веб-движков и GUI-фреймворков
   или текущий трек с обложкой, кнопками и громкостью. Колёсико над спутником
   музыки меняет громкость.
 - **Клик по ядру** — хаб: действия Moonlet (скриншот области, командная
-  строка, музыка, пауза орбиты, круг или овал, настройки) и свои плитки —
-  программы, файлы, папки, сайты и команды строки вроде `громкость 30`.
-  Что и в каком порядке — в настройках, раздел «Быстрый доступ».
+  строка, музыка, Bluetooth, пауза орбиты, круг или овал, настройки) и свои
+  плитки — программы, файлы, папки, сайты и команды строки вроде
+  `громкость 30`. Что и в каком порядке — в настройках, раздел «Быстрый доступ».
+  Плитка Bluetooth включает и выключает его; если её зажать (или кликнуть
+  правой кнопкой) — откроется окно устройств Windows.
 - **Временные спутники.** Подключили или отключили зарядку, заряд упал до 20%
   и 10% — из спутника батареи вылетает его маленькая копия с короткой надписью.
   Так же можно показывать новый трек (по умолчанию выключено).
 - **Командная строка.** `Ctrl+Alt+Space` — из ядра выезжает поле:
   - программы из меню «Пуск» (понимает неверную раскладку и русское название
     английской программы: `ntktuhfv` находит Telegram);
+  - файлы и папки из индекса поиска Windows; пустое поле показывает недавние
+    файлы. Enter открывает, Ctrl+Enter показывает файл в папке;
   - команды Moonlet: `пауза`, `дальше`, `назад`, `громкость 30`, `круг`,
-    `овал`, `вращение`, `скриншот`, `настройки` (английские слова тоже);
+    `овал`, `вращение`, `скриншот`, `настройки`, `блютуз` (английские слова тоже);
+  - системные команды: `сон`, `заблокировать`, `выключить`, `перезагрузка`,
+    `корзина`. Выключение, перезагрузка и очистка корзины срабатывают только
+    со второго Enter;
   - калькулятор: `(1,5+2)*3`, `2^10`, `15%`, `√16`; Enter копирует ответ;
   - `github.com` открывает сайт, остальное ищется в интернете поисковиком
     браузера по умолчанию.
@@ -214,7 +226,7 @@ hotkey = "Ctrl+Alt+Space"
 search = ""   # пусто — поисковик браузера, или, например, "https://duckduckgo.com/?q="
 
 [hub]
-# Действия Moonlet: screenshot, launcher, play, next, previous, rotation, shape, settings.
+# Действия Moonlet: screenshot, launcher, play, next, previous, bluetooth, rotation, shape, settings.
 # Свои плитки: "app:путь", "file:путь", "folder:путь", "url:адрес", "cmd:текст"; имя — после |.
 tiles = ["screenshot", "launcher", "url:https://github.com|GitHub", "settings"]
 ```
@@ -247,7 +259,6 @@ cargo build --release
 
 ### Планы
 
-- Переключатель Bluetooth; файлы, папки и системные команды в командной строке.
 - Заметки и напоминания.
 - Сценарии: одним словом открыть нужные программы и расставить окна.
 - Игры: счётчик FPS (по желанию, по умолчанию выключен).

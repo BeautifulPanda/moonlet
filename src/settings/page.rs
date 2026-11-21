@@ -248,6 +248,23 @@ pub struct Ui {
 
 const NEWS: [(&str, &[(&str, &str)]); 2] = [
     (
+        "0.5.0",
+        &[
+            (
+                "Плитка Bluetooth в хабе: клик — вкл. / выкл., зажать или правый клик — устройства Windows. Без адаптера плитки нет. В строке — «блютуз».",
+                "A Bluetooth hub tile: click to turn it on or off, hold or right-click for Windows devices. Hidden without an adapter. In the command line: \"bluetooth\".",
+            ),
+            (
+                "Командная строка ищет файлы и папки (индекс поиска Windows), а пустая показывает недавние файлы. Enter — открыть, Ctrl+Enter — показать в папке.",
+                "The command line finds files and folders (Windows Search index); when empty it shows recent files. Enter opens, Ctrl+Enter shows the file in its folder.",
+            ),
+            (
+                "Системные команды: сон, заблокировать, выключить, перезагрузка, очистить корзину. Выключение, перезагрузка и корзина срабатывают со второго Enter.",
+                "System commands: sleep, lock, shut down, restart, empty the Recycle Bin. Shutting down, restarting and emptying the bin need a second Enter.",
+            ),
+        ],
+    ),
+    (
         "0.4.0",
         &[
             (
@@ -263,13 +280,6 @@ const NEWS: [(&str, &[(&str, &str)]); 2] = [
                 "A satellite card no longer hides under the label of the next satellite.",
             ),
         ],
-    ),
-    (
-        "0.3.1",
-        &[(
-            "«Что нового» прямо в настройках; клик по уведомлению «Moonlet обновлён» открывает этот список.",
-            "\"What's new\" right in the settings; clicking the \"Moonlet updated\" notification opens this list.",
-        )],
     ),
 ];
 
@@ -748,6 +758,14 @@ fn tile_hint(tile: &Tile, config: &Config) -> String {
         Tile::Builtin(Builtin::PlayPause | Builtin::Next | Builtin::Previous) if !music => tr(
             "Видна, когда на орбите есть «Музыка»",
             "Shown while Music is on the orbit",
+        ),
+        Tile::Builtin(Builtin::Bluetooth) if !cfg!(feature = "bluetooth") => tr(
+            "Bluetooth нет в этой сборке — плитки не видно",
+            "Bluetooth is missing in this build, the tile is hidden",
+        ),
+        Tile::Builtin(Builtin::Bluetooth) => tr(
+            "Зажать — устройства. Без адаптера не видна",
+            "Hold for devices. Hidden without an adapter",
         ),
         Tile::Custom {
             kind: Kind::Command,

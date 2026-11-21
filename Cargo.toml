@@ -1,17 +1,26 @@
 [package]
 name = "moonlet"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 license = "MIT"
 description = "Lightweight, modular desktop customization for Windows"
 publish = false
 
 [features]
-default = ["orbit", "music", "update", "launcher", "settings"]
+default = ["orbit", "music", "update", "launcher", "settings", "bluetooth"]
+bluetooth = [
+    "orbit",
+    "windows/Devices_Radios",
+    "windows/Foundation",
+]
 launcher = [
     "orbit",
+    "windows/Foundation",
+    "windows/Storage_Search",
+    "windows/Win32_Storage_FileSystem",
     "windows/Win32_System_DataExchange",
     "windows/Win32_System_Memory",
+    "windows/Win32_System_Shutdown",
 ]
 update = [
     "windows/Win32_Networking_WinHttp",

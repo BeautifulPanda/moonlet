@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.5.0] - 2026-11-21
+
+- Bluetooth hub tile (`bluetooth` in `[hub] tiles`): a click turns Bluetooth on
+  or off, holding the tile for half a second (or a right click) opens the
+  Windows Bluetooth devices page. The icon is dimmed while Bluetooth is off.
+  Without an adapter the tile is hidden. The radio is switched on a background
+  thread, and Windows reports changes made elsewhere (Action Center).
+- Command line:
+  - files and folders from the Windows Search index (names that start with the
+    text first, then names that contain it), shown under apps and commands with
+    their folder on the right. Moonlet keeps no index of its own; the query runs
+    on a background thread while you type;
+  - the empty field shows recent files;
+  - Enter opens a file or folder, Ctrl+Enter shows it in Explorer;
+  - `bluetooth` turns it on or off, the next line opens the devices page;
+  - system commands: `sleep`, `lock`, `shutdown`, `restart`, `empty bin`
+    (with the number of items and the size). Shutting down, restarting and
+    emptying the bin need a second Enter within 3 seconds, so a typo cannot
+    trigger them. A hub command tile with such a command opens the command line
+    with it waiting for Enter.
+
 ## [0.4.0] - 2026-11-20
 
 - Quick access: the hub tiles are configurable. Settings → Quick access lists

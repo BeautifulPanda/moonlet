@@ -179,8 +179,8 @@ impl View {
         let field = gfx.text(&string, 17.0 * s, false)?;
         let placeholder = gfx.text(
             tr(
-                "Программа, команда, пример или поиск",
-                "App, command, math or web search",
+                "Программа, файл, команда, пример или поиск",
+                "App, file, command, math or web search",
             ),
             17.0 * s,
             false,
@@ -193,7 +193,7 @@ impl View {
         let rows: Vec<_> = items
             .iter()
             .map(|item| {
-                let hint = gfx.text(item.hint, 11.0 * s, false);
+                let hint = gfx.text(&item.hint, 11.0 * s, false);
                 let hint_width = hint.as_ref().map_or(0.0, |h| h.width);
                 let title_max = width - 40.0 * s - l.pad as f32 - hint_width - 28.0 * s;
                 (

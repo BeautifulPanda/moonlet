@@ -443,8 +443,12 @@ fn hub_toml(tiles: &[Tile]) -> String {
         "Hub tiles (click the core) in order, up to 16. Moonlet actions:",
     );
     text += &comment(
-        "\"screenshot\", \"launcher\", \"play\", \"next\", \"previous\", \"rotation\", \"shape\", \"settings\".",
-        "\"screenshot\", \"launcher\", \"play\", \"next\", \"previous\", \"rotation\", \"shape\", \"settings\".",
+        "\"screenshot\", \"launcher\", \"play\", \"next\", \"previous\", \"bluetooth\",",
+        "\"screenshot\", \"launcher\", \"play\", \"next\", \"previous\", \"bluetooth\",",
+    );
+    text += &comment(
+        "\"rotation\", \"shape\", \"settings\".",
+        "\"rotation\", \"shape\", \"settings\".",
     );
     text += &comment(
         "Свои плитки: \"app:путь\", \"file:путь\", \"folder:путь\", \"url:адрес\", \"cmd:команда строки\";",

@@ -2,6 +2,8 @@
 // All motion is DirectComposition animation evaluated by DWM; the process
 // only wakes up to redraw when the data changes.
 
+#[cfg(feature = "bluetooth")]
+mod bluetooth;
 mod info;
 #[cfg(feature = "launcher")]
 mod launcher;
@@ -85,6 +87,9 @@ const NOTICE_TIMER: usize = 5;
 const NOTICE_GONE_TIMER: usize = 6;
 const WM_LBUTTONDOWN: u32 = 0x0201;
 const WM_LBUTTONUP: u32 = 0x0202;
+const WM_RBUTTONUP: u32 = 0x0205;
+const HOLD_TIMER: usize = 8;
+const HOLD_MS: u32 = 500;
 
 #[derive(Clone, Copy)]
 enum MusicKey {
@@ -110,6 +115,10 @@ pub struct Orbit {
     #[cfg(feature = "music")]
     volume: Option<volume::Volume>,
     hub: Option<HubView>,
+    pressed: Option<usize>,
+    held: bool,
+    #[cfg(feature = "bluetooth")]
+    bluetooth: Option<bluetooth::Bluetooth>,
     notice: Option<NoticeView>,
     #[cfg(feature = "launcher")]
     launcher: Option<launcher::Launcher>,
@@ -343,6 +352,10 @@ impl Orbit {
                 #[cfg(feature = "music")]
                 volume: None,
                 hub: None,
+                pressed: None,
+                held: false,
+                #[cfg(feature = "bluetooth")]
+                bluetooth: None,
                 notice: None,
                 #[cfg(feature = "launcher")]
                 launcher: None,
@@ -363,6 +376,7 @@ impl Orbit {
             orbit.schedule_clock();
             #[cfg(feature = "music")]
             orbit.start_music();
+            orbit.need_bluetooth(false);
             orbit.gfx.trim();
 
             let _ = ShowWindow(render_hwnd, SW_SHOWNOACTIVATE);
@@ -445,6 +459,12 @@ impl Orbit {
                 Some(LRESULT(0))
             }
             #[cfg(feature = "launcher")]
+            WM_TIMER if wparam.0 == launcher::SLEEP_TIMER => {
+                self.stop_timer(launcher::SLEEP_TIMER);
+                launcher::system::sleep(self.input_hwnd);
+                Some(LRESULT(0))
+            }
+            #[cfg(feature = "launcher")]
             WM_TIMER if wparam.0 == launcher::GONE_TIMER => {
                 self.stop_timer(launcher::GONE_TIMER);
                 if self.launcher_view.as_ref().is_some_and(|v| v.hiding) {
@@ -475,9 +495,34 @@ impl Orbit {
                 Some(LRESULT(0))
             }
             WM_MOUSEACTIVATE => Some(LRESULT(MA_NOACTIVATE as isize)),
-            WM_LBUTTONDOWN => Some(LRESULT(0)),
+            WM_LBUTTONDOWN => {
+                self.press(point_from(lparam));
+                Some(LRESULT(0))
+            }
             WM_LBUTTONUP => {
-                let _ = self.click(point_from(lparam));
+                self.stop_timer(HOLD_TIMER);
+                self.pressed = None;
+                if !std::mem::take(&mut self.held) {
+                    let _ = self.click(point_from(lparam));
+                }
+                Some(LRESULT(0))
+            }
+            WM_TIMER if wparam.0 == HOLD_TIMER => {
+                self.stop_timer(HOLD_TIMER);
+                let _ = self.hold();
+                Some(LRESULT(0))
+            }
+            WM_RBUTTONUP => {
+                if self.hub_open() {
+                    self.pressed = self.hub_tile_at(point_from(lparam));
+                    let _ = self.hold();
+                    self.held = false;
+                }
+                Some(LRESULT(0))
+            }
+            #[cfg(feature = "bluetooth")]
+            bluetooth::WM_BLUETOOTH => {
+                let _ = self.on_bluetooth(wparam.0 == 1);
                 Some(LRESULT(0))
             }
             #[cfg(feature = "music")]
@@ -1364,6 +1409,7 @@ impl Orbit {
             Tile::Builtin(Builtin::PlayPause | Builtin::Next | Builtin::Previous) => {
                 self.music_on()
             }
+            Tile::Builtin(Builtin::Bluetooth) => self.bluetooth_state().is_some(),
             Tile::Custom {
                 kind: Kind::Command,
                 ..
@@ -1405,6 +1451,8 @@ impl Orbit {
         self.hub_tiles()
             .into_iter()
             .map(|tile| {
+                let dim = tile == Tile::Builtin(Builtin::Bluetooth)
+                    && self.bluetooth_state() == Some(false);
                 let (icon, label) = match tile {
                     Tile::Builtin(builtin) => {
                         let (glyph, label) = self.builtin_look(builtin);
@@ -1415,7 +1463,7 @@ impl Orbit {
                         None => (TileIcon::Letter(tile::letter(&name)), name),
                     },
                 };
-                HubTile { icon, label }
+                HubTile { icon, label, dim }
             })
             .collect()
     }
@@ -1439,6 +1487,7 @@ impl Orbit {
             Builtin::PlayPause => ('\u{E768}', tr("Музыка", "Music")),
             Builtin::Next => ('\u{E893}', tr("Дальше", "Next")),
             Builtin::Previous => ('\u{E892}', tr("Назад", "Back")),
+            Builtin::Bluetooth => ('\u{E702}', "Bluetooth"),
         }
     }
 
@@ -1471,6 +1520,7 @@ impl Orbit {
         }
         self.config.tiles = tiles.to_vec();
         self.remove_hub();
+        self.need_bluetooth(false);
     }
 
     fn remove_hub(&mut self) {
@@ -1616,6 +1666,10 @@ impl Orbit {
             Tile::Builtin(Builtin::PlayPause) => return self.hub_music(MusicKey::PlayPause),
             Tile::Builtin(Builtin::Next) => return self.hub_music(MusicKey::Next),
             Tile::Builtin(Builtin::Previous) => return self.hub_music(MusicKey::Previous),
+            Tile::Builtin(Builtin::Bluetooth) => {
+                self.toggle_bluetooth();
+                return Ok(());
+            }
             #[cfg(feature = "launcher")]
             Tile::Builtin(Builtin::Launcher) => {
                 let search = self.search.clone();
@@ -1866,6 +1920,106 @@ impl Orbit {
                 None,
             );
         }
+    }
+}
+
+impl Orbit {
+    fn need_bluetooth(&mut self, for_launcher: bool) {
+        #[cfg(feature = "bluetooth")]
+        {
+            if let Some(bluetooth) = &self.bluetooth {
+                bluetooth.refresh();
+                return;
+            }
+            let tile = self.config.tiles.iter().any(|tile| {
+                matches!(
+                    tile,
+                    Tile::Builtin(Builtin::Bluetooth)
+                        | Tile::Custom {
+                            kind: Kind::Command,
+                            ..
+                        }
+                )
+            });
+            if tile || for_launcher {
+                self.bluetooth = Some(bluetooth::Bluetooth::start(self.input_hwnd));
+            }
+        }
+        #[cfg(not(feature = "bluetooth"))]
+        let _ = for_launcher;
+    }
+
+    fn bluetooth_state(&self) -> Option<bool> {
+        #[cfg(feature = "bluetooth")]
+        if let Some(bluetooth) = &self.bluetooth {
+            return match bluetooth.state() {
+                bluetooth::State::On => Some(true),
+                bluetooth::State::Off => Some(false),
+                _ => None,
+            };
+        }
+        None
+    }
+
+    fn toggle_bluetooth(&self) {
+        #[cfg(feature = "bluetooth")]
+        if let Some(bluetooth) = &self.bluetooth {
+            bluetooth.toggle();
+        }
+    }
+
+    fn press(&mut self, point: Vec2) {
+        self.held = false;
+        self.pressed = None;
+        if !self.hub_open() {
+            return;
+        }
+        let index = self.hub_tile_at(point);
+        let bluetooth = index
+            .and_then(|i| self.hub_tiles().into_iter().nth(i))
+            .is_some_and(|tile| tile == Tile::Builtin(Builtin::Bluetooth));
+        if bluetooth {
+            self.pressed = index;
+            unsafe {
+                SetTimer(Some(self.input_hwnd), HOLD_TIMER, HOLD_MS, None);
+            }
+        }
+    }
+
+    fn hold(&mut self) -> Result<()> {
+        let tile = self
+            .pressed
+            .take()
+            .and_then(|i| self.hub_tiles().into_iter().nth(i));
+        if tile != Some(Tile::Builtin(Builtin::Bluetooth)) {
+            return Ok(());
+        }
+        self.held = true;
+        self.close_hub()?;
+        shell::open("ms-settings:bluetooth", None);
+        Ok(())
+    }
+
+    #[cfg(feature = "bluetooth")]
+    fn on_bluetooth(&mut self, denied: bool) -> Result<()> {
+        if denied {
+            shell::open("ms-settings:bluetooth", None);
+            return Ok(());
+        }
+        if self.hub_open() {
+            let count = self.hub_tiles().len();
+            if self.hub.as_ref().is_some_and(|hub| hub.count != count) {
+                self.open_hub()?;
+            } else {
+                self.paint_hub()?;
+                unsafe {
+                    self.gfx.dcomp.Commit()?;
+                }
+            }
+        }
+        #[cfg(feature = "launcher")]
+        self.launcher_bluetooth_changed()?;
+        Ok(())
     }
 }
 

@@ -509,6 +509,7 @@ pub enum TileIcon {
 pub struct HubTile {
     pub icon: TileIcon,
     pub label: String,
+    pub dim: bool,
 }
 
 pub fn hub_layout(geo: &Geometry, count: usize) -> ((f64, f64), Vec<Rect>) {
@@ -621,7 +622,7 @@ impl HubView {
                         .map(|b| (b, true)),
                 };
                 let label = gfx.text_fit(&item.label, 11.0 * s, false, Some(label_width));
-                (icon, label)
+                (icon, label, item.dim)
             })
             .collect();
         gfx.draw(&self.surface, width as u32, height as u32, |p| {
@@ -631,7 +632,7 @@ impl HubView {
                 gfx::rgb(PANEL_COLOR, 0.94),
                 (1.0, gfx::rgb(0xFFFFFF, 0.10)),
             );
-            for ((x, y, w, _), (icon, label)) in tiles.iter().zip(&blocks) {
+            for ((x, y, w, _), (icon, label, dim)) in tiles.iter().zip(&blocks) {
                 let (x, y, w) = (*x as f32, *y as f32, *w as f32);
                 p.rounded_rect(
                     (x, y, w, 64.0 * s),
@@ -644,7 +645,11 @@ impl HubView {
                         icon,
                         x + (w - icon.width) / 2.0,
                         y + 12.0 * s,
-                        gfx::rgb(TEXT_COLOR, 1.0),
+                        if *dim {
+                            gfx::rgb(DIM_TEXT_COLOR, 0.55)
+                        } else {
+                            gfx::rgb(TEXT_COLOR, 1.0)
+                        },
                     ),
                     Ok((letter, true)) => {
                         let d = 21.0 * s;
