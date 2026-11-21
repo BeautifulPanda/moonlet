@@ -258,6 +258,8 @@ impl Orbit {
             Action::Command(command) => self.run_command(command),
             #[cfg(feature = "timers")]
             Action::Remind(request) => self.add_reminder(&request),
+            #[cfg(feature = "notes")]
+            Action::Note(text) => crate::notes::create(&text),
             Action::Complete(text) => {
                 self.toggle_launcher(search)?;
                 if let Some(launcher) = &mut self.launcher {
@@ -277,6 +279,7 @@ impl Orbit {
             reminders_full: self.reminders_full(),
             #[cfg(not(feature = "timers"))]
             reminders_full: false,
+            notes: super::notes_on(),
         }
     }
 
@@ -459,7 +462,7 @@ impl Orbit {
                 self.close_launcher(true)
             }
             Action::Command(command) => {
-                self.close_launcher(true)?;
+                self.close_launcher(command != Command::NewNote)?;
                 self.run_command(command);
                 Ok(())
             }
@@ -467,6 +470,12 @@ impl Orbit {
             Action::Remind(request) => {
                 self.close_launcher(true)?;
                 self.add_reminder(&request);
+                Ok(())
+            }
+            #[cfg(feature = "notes")]
+            Action::Note(text) => {
+                self.close_launcher(false)?;
+                crate::notes::create(&text);
                 Ok(())
             }
         }
@@ -479,6 +488,18 @@ impl Orbit {
             Command::Rotation => CMD_ROTATION,
             Command::Screenshot => CMD_SCREENSHOT,
             Command::Settings => CMD_OPEN_CONFIG,
+            #[cfg(feature = "notes")]
+            Command::NewNote => {
+                crate::notes::create("");
+                return;
+            }
+            #[cfg(feature = "notes")]
+            Command::ShowNotes => {
+                crate::notes::show_all();
+                return;
+            }
+            #[cfg(not(feature = "notes"))]
+            Command::NewNote | Command::ShowNotes => return,
             Command::Bluetooth => {
                 self.toggle_bluetooth();
                 return;

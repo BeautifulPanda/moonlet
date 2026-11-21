@@ -15,16 +15,18 @@ pub enum Builtin {
     Next,
     Previous,
     Bluetooth,
+    Note,
 }
 
 impl Builtin {
-    pub const ALL: [(Builtin, &'static str); 9] = [
+    pub const ALL: [(Builtin, &'static str); 10] = [
         (Builtin::Screenshot, "screenshot"),
         (Builtin::Launcher, "launcher"),
         (Builtin::PlayPause, "play"),
         (Builtin::Next, "next"),
         (Builtin::Previous, "previous"),
         (Builtin::Bluetooth, "bluetooth"),
+        (Builtin::Note, "note"),
         (Builtin::Rotation, "rotation"),
         (Builtin::Shape, "shape"),
         (Builtin::Settings, "settings"),
@@ -53,6 +55,7 @@ impl Builtin {
             Builtin::Next => tr("Следующий трек", "Next track"),
             Builtin::Previous => tr("Предыдущий трек", "Previous track"),
             Builtin::Bluetooth => tr("Bluetooth вкл. / выкл.", "Bluetooth on / off"),
+            Builtin::Note => tr("Новая заметка", "New note"),
         }
     }
 }
@@ -229,6 +232,7 @@ mod tests {
         for text in [
             "screenshot",
             "bluetooth",
+            "note",
             "app:C:\\Apps\\Telegram.lnk",
             "file:D:\\Docs\\plan.pdf",
             "folder:C:\\Users\\Me\\Downloads\\",

@@ -173,6 +173,10 @@ fn open(config: Config, file_error: Option<String>, news: bool) -> Result<()> {
     {
         ui.reminders = crate::reminders::load();
     }
+    #[cfg(feature = "notes")]
+    {
+        ui.notes = page::note_infos();
+    }
     let mut settings = Settings {
         hwnd,
         config,
@@ -446,6 +450,11 @@ impl Settings {
                 Some(LRESULT(0))
             }
             WM_SYSCHAR if self.recording => Some(LRESULT(0)),
+            #[cfg(feature = "notes")]
+            WM_ACTIVATE if (wparam.0 & 0xFFFF) as u32 != WA_INACTIVE => {
+                self.reload_notes();
+                None
+            }
             WM_ACTIVATE if (wparam.0 & 0xFFFF) as u32 == WA_INACTIVE => {
                 if self.recording {
                     self.recording = false;
@@ -885,6 +894,11 @@ impl Settings {
     }
 
     fn change(&mut self, setting: Setting, change: Change) {
+        #[cfg(feature = "notes")]
+        if let (Setting::NoteRow(index), Change::Pick(action)) = (setting, &change) {
+            self.note_action(index, *action);
+            return;
+        }
         #[cfg(feature = "orbit")]
         if let (Setting::Tile(index), Change::Move(delta)) = (setting, &change) {
             let to = (index as isize + delta).max(0) as usize;
@@ -992,6 +1006,22 @@ impl Settings {
                 }
                 self.ui.reminders = crate::reminders::load();
                 self.refresh();
+            }
+            #[cfg(feature = "notes")]
+            Setting::NotesFolder => {
+                if let Some(dir) = crate::notes::store::dir() {
+                    let _ = std::fs::create_dir_all(&dir);
+                    unsafe {
+                        ShellExecuteW(
+                            Some(self.hwnd),
+                            w!("open"),
+                            &HSTRING::from(dir.as_os_str()),
+                            PCWSTR::null(),
+                            PCWSTR::null(),
+                            SW_SHOWNORMAL,
+                        );
+                    }
+                }
             }
             Setting::OpenFile => config::open_in_notepad(),
             Setting::Website => unsafe {
@@ -1307,6 +1337,78 @@ impl Settings {
             );
         }
         true
+    }
+
+    #[cfg(feature = "notes")]
+    fn reload_notes(&mut self) {
+        let list = page::note_infos();
+        if list != self.ui.notes {
+            self.ui.notes = list;
+            self.refresh();
+        }
+    }
+
+    #[cfg(feature = "notes")]
+    fn note_action(&mut self, index: usize, action: usize) {
+        use crate::notes::{NOTE_DELETE, NOTE_SHOW, WM_NOTES};
+        let Some(id) = self.ui.notes.get(index).map(|n| n.id) else {
+            return;
+        };
+        let setting = Setting::NoteRow(index);
+        let host = unsafe { FindWindowW(w!("MoonletHost"), PCWSTR::null()) }
+            .ok()
+            .filter(|h| !h.is_invalid());
+        let post = |what: usize| {
+            if let Some(host) = host {
+                unsafe {
+                    let _ = windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(
+                        windows::Win32::UI::WindowsAndMessaging::ASFW_ANY,
+                    );
+                    let _ = PostMessageW(Some(host), WM_NOTES, WPARAM(what), LPARAM(id as isize));
+                }
+            }
+        };
+        if action == 0 {
+            self.ui.note_armed = None;
+            if host.is_some() {
+                post(NOTE_SHOW);
+                self.ui.message = None;
+            } else {
+                self.ui.message = Some((
+                    setting,
+                    tr(
+                        "Moonlet не запущен — заметки показывает он",
+                        "Moonlet is not running, it shows the notes",
+                    ),
+                    true,
+                ));
+            }
+            self.refresh();
+            return;
+        }
+        if self.ui.note_armed != Some(id) {
+            self.ui.note_armed = Some(id);
+            self.ui.message = Some((
+                setting,
+                tr(
+                    "Нажмите «Удалить» ещё раз — заметка удалится насовсем",
+                    "Press Delete again to delete the note for good",
+                ),
+                true,
+            ));
+            self.refresh();
+            return;
+        }
+        self.ui.note_armed = None;
+        self.ui.message = None;
+        if host.is_some() {
+            post(NOTE_DELETE);
+            self.ui.notes.retain(|n| n.id != id);
+        } else {
+            crate::notes::store::delete(id);
+            self.ui.notes = page::note_infos();
+        }
+        self.refresh();
     }
 
     fn reload_file(&mut self) {

@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.6.1] - 2026-11-21
+
+- Notes (Cargo feature `notes`, `[modules] notes`). A note is a small dark
+  window with a plain text editor (the Windows RichEdit control): the Windows
+  font, links that open with a click, Ctrl+wheel to zoom. Create one with
+  `note buy milk` in the command line (Russian `заметка …` too), the `note`
+  hub tile or "New note" in the tray menu; `show notes` brings them all
+  forward. There is no limit on how many.
+- The note's `⋯` menu (or a right click on it): always on top (hidden during
+  full-screen apps), on the desktop under all windows, or a normal window.
+  `[notes] mode` sets it for new notes.
+- Sticking to a window: put the note over a program's window and pick
+  "Stick to window: …". The note keeps its place from the nearest corner of
+  that window, moves and hides with it and comes back when the program opens
+  again (it is recognized by its exe). In a browser it sticks to the tab: it is
+  shown only while the window's title is that tab's title. Window events come
+  from `SetWinEventHook`; there are no hooks without stuck notes, and nothing
+  is polled.
+- `✕` on a note with text asks "Delete?" first and deletes on a second click
+  within 3 seconds; an empty note closes at once.
+- Each note is `%APPDATA%\Moonlet\notes\<number>.txt` (plain text, saved a
+  second after the last edit); places and modes are in `layout.txt` there.
+- Settings → Notes: the module switch, the mode of a new note, the list of all
+  notes with Show and Delete (twice), and the folder.
+
 ## [0.6.0] - 2026-11-21
 
 - Timers and reminders from the command line (Russian words work too):

@@ -24,6 +24,8 @@ pub enum Section {
     Launcher,
     #[cfg(feature = "timers")]
     Timers,
+    #[cfg(feature = "notes")]
+    Notes,
     About,
 }
 
@@ -39,6 +41,8 @@ impl Section {
             Section::Launcher,
             #[cfg(feature = "timers")]
             Section::Timers,
+            #[cfg(feature = "notes")]
+            Section::Notes,
             Section::About,
         ]
     }
@@ -54,6 +58,8 @@ impl Section {
             Section::Launcher => tr("Командная строка", "Command line"),
             #[cfg(feature = "timers")]
             Section::Timers => tr("Таймеры", "Timers"),
+            #[cfg(feature = "notes")]
+            Section::Notes => tr("Заметки", "Notes"),
             Section::About => tr("О программе", "About"),
         }
     }
@@ -69,6 +75,8 @@ impl Section {
             Section::Launcher => 0xB794F4,
             #[cfg(feature = "timers")]
             Section::Timers => 0xF687B3,
+            #[cfg(feature = "notes")]
+            Section::Notes => 0xD9DCE3,
             Section::About => 0x6F7584,
         }
     }
@@ -139,6 +147,14 @@ pub enum Setting {
     TimerSoundTest,
     #[cfg(feature = "timers")]
     CancelReminder(usize),
+    #[cfg(feature = "notes")]
+    NotesModule,
+    #[cfg(feature = "notes")]
+    NotesMode,
+    #[cfg(feature = "notes")]
+    NoteRow(usize),
+    #[cfg(feature = "notes")]
+    NotesFolder,
     OpenFile,
     Website,
 }
@@ -264,9 +280,71 @@ pub struct Ui {
     pub reminders: Vec<crate::reminders::Reminder>,
     #[cfg(feature = "timers")]
     pub custom_sound: bool,
+    #[cfg(feature = "notes")]
+    pub notes: Vec<NoteInfo>,
+    #[cfg(feature = "notes")]
+    pub note_armed: Option<u64>,
+}
+
+#[cfg(feature = "notes")]
+#[derive(Clone, Debug, PartialEq)]
+pub struct NoteInfo {
+    pub id: u64,
+    pub title: String,
+    pub hint: String,
+}
+
+#[cfg(feature = "notes")]
+pub fn note_infos() -> Vec<NoteInfo> {
+    use crate::notes::store::{self, Mode};
+    store::load()
+        .into_iter()
+        .map(|note| {
+            let title = store::first_line(&store::read_text(note.id));
+            let hint = match (&note.attach, note.mode) {
+                (Some(a), _) => {
+                    let name = if a.tab.is_empty() {
+                        a.exe.trim_end_matches(".exe")
+                    } else {
+                        a.tab.as_str()
+                    };
+                    format!("{} {name}", tr("Приклеена к окну:", "Stuck to:"))
+                }
+                (None, Mode::Top) => tr("Поверх окон", "Always on top").to_string(),
+                (None, Mode::Desktop) => tr("На рабочем столе", "On the desktop").to_string(),
+                (None, Mode::Normal) => tr("Обычное окно", "Normal window").to_string(),
+            };
+            NoteInfo {
+                id: note.id,
+                title: if title.is_empty() {
+                    tr("Пустая заметка", "Empty note").to_string()
+                } else {
+                    title
+                },
+                hint,
+            }
+        })
+        .collect()
 }
 
 const NEWS: [(&str, &[(&str, &str)]); 2] = [
+    (
+        "0.6.1",
+        &[
+            (
+                "Заметки: «заметка купить хлеб» в строке, плитка хаба или «Новая заметка» в меню трея. Ссылки в тексте открываются щелчком, Ctrl+колёсико меняет размер текста.",
+                "Notes: \"note buy milk\" in the command line, a hub tile or \"New note\" in the tray menu. Links in the text open with a click; Ctrl+wheel changes the text size.",
+            ),
+            (
+                "Заметка держится поверх окон, на рабочем столе или как обычное окно — выбор в её меню «⋯». Можно приклеить к окну программы: поставьте заметку на окно — она будет ездить с ним, а у браузера появляться только на своей вкладке.",
+                "A note stays on top, on the desktop or as a normal window, set in its \"⋯\" menu. Put a note over a program's window and stick it there: it moves with the window, and in a browser it shows up only on its own tab.",
+            ),
+            (
+                "Раздел «Заметки» в настройках: режим новой заметки, список всех заметок и папка, где каждая заметка — обычный .txt.",
+                "A Notes section in the settings: the mode for new notes, a list of all notes and the folder where each note is a plain .txt file.",
+            ),
+        ],
+    ),
     (
         "0.6.0",
         &[
@@ -281,23 +359,6 @@ const NEWS: [(&str, &[(&str, &str)]); 2] = [
             (
                 "Срабатывание — надпись, которая ждёт, пока вы вернётесь к компьютеру, и мягкий звук. Свой .wav или тишина — в разделе «Таймеры».",
                 "When time is up, a note waits until you're back at the computer, with a soft chime. Pick your own .wav or silence under Timers.",
-            ),
-        ],
-    ),
-    (
-        "0.5.0",
-        &[
-            (
-                "Плитка Bluetooth в хабе: клик — вкл. / выкл., зажать или правый клик — устройства Windows. Без адаптера плитки нет. В строке — «блютуз».",
-                "A Bluetooth hub tile: click to turn it on or off, hold or right-click for Windows devices. Hidden without an adapter. In the command line: \"bluetooth\".",
-            ),
-            (
-                "Командная строка ищет файлы и папки (индекс поиска Windows), а пустая показывает недавние файлы. Enter — открыть, Ctrl+Enter — показать в папке.",
-                "The command line finds files and folders (Windows Search index); when empty it shows recent files. Enter opens, Ctrl+Enter shows the file in its folder.",
-            ),
-            (
-                "Системные команды: сон, заблокировать, выключить, перезагрузка, очистить корзину. Выключение, перезагрузка и корзина срабатывают со второго Enter.",
-                "System commands: sleep, lock, shut down, restart, empty the Recycle Bin. Shutting down, restarting and emptying the bin need a second Enter.",
             ),
         ],
     ),
@@ -362,6 +423,8 @@ pub fn rows(section: Section, config: &Config, ui: &Ui) -> Vec<Row> {
         Section::Launcher => launcher(&mut rows, config, ui),
         #[cfg(feature = "timers")]
         Section::Timers => timers(&mut rows, config, ui),
+        #[cfg(feature = "notes")]
+        Section::Notes => notes(&mut rows, config, ui),
         Section::About => about(&mut rows),
     }
     rows
@@ -1016,6 +1079,71 @@ fn timers(rows: &mut Vec<Row>, config: &Config, ui: &Ui) {
     }
 }
 
+#[cfg(feature = "notes")]
+fn notes(rows: &mut Vec<Row>, config: &Config, ui: &Ui) {
+    use crate::notes::store::Mode;
+    let off = !config.notes_enabled;
+    rows.push(Row::caption(tr("Модуль", "Module")));
+    rows.push(Row::new(
+        Setting::NotesModule,
+        tr("Заметки", "Notes"),
+        tr(
+            "Создать: «заметка …» в строке, плитка хаба или меню трея",
+            "Create one: \"note …\" in the command line, a hub tile or the tray menu",
+        ),
+        Control::Toggle(config.notes_enabled),
+    ));
+    let mode = Mode::ALL
+        .iter()
+        .position(|(m, _)| *m == config.notes_mode)
+        .unwrap_or(0);
+    rows.push(
+        Row::new(
+            Setting::NotesMode,
+            tr("Новая заметка", "A new note"),
+            "",
+            Control::Choice(
+                vec![
+                    tr("Поверх окон", "On top"),
+                    tr("На столе", "Desktop"),
+                    tr("Обычное окно", "Normal"),
+                ],
+                Some(mode),
+            ),
+        )
+        .dim(off),
+    );
+    rows.push(Row::info(tr(
+        "Приклеить к окну — в меню «⋯» самой заметки",
+        "Stick to a window: in the note's own \"⋯\" menu",
+    )));
+
+    rows.push(Row::caption(tr("Все заметки", "All notes")));
+    if ui.notes.is_empty() {
+        rows.push(Row::info(tr("Заметок пока нет", "No notes yet")));
+    }
+    for (index, note) in ui.notes.iter().enumerate() {
+        rows.push(
+            Row::new(
+                Setting::NoteRow(index),
+                &note.title,
+                &note.hint,
+                Control::Choice(vec![tr("Показать", "Show"), tr("Удалить", "Delete")], None),
+            )
+            .message(ui),
+        );
+    }
+    rows.push(Row::new(
+        Setting::NotesFolder,
+        tr("Папка с заметками", "Notes folder"),
+        tr(
+            "Текст каждой заметки — файл .txt",
+            "Each note is a .txt file",
+        ),
+        Control::Button(tr("Открыть", "Open")),
+    ));
+}
+
 fn about(rows: &mut Vec<Row>) {
     rows.push(Row::caption("Moonlet"));
     rows.push(Row {
@@ -1104,6 +1232,17 @@ pub fn apply(config: &mut Config, ui: &mut Ui, setting: Setting, change: Change)
                 "sound",
                 crate::config::quoted(&config.timer_sound),
             )]
+        }
+        #[cfg(feature = "notes")]
+        (Setting::NotesModule, Toggle) => {
+            config.notes_enabled = !config.notes_enabled;
+            vec![write("modules", "notes", flag(config.notes_enabled))]
+        }
+        #[cfg(feature = "notes")]
+        (Setting::NotesMode, Pick(i)) => {
+            let (mode, name) = crate::notes::store::Mode::ALL[i.min(2)];
+            config.notes_mode = mode;
+            vec![write("notes", "mode", format!("\"{name}\""))]
         }
         (Setting::Autostart, Toggle) => {
             config.autostart = !config.autostart;

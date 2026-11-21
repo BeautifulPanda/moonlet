@@ -44,6 +44,14 @@ views, no GUI frameworks.
   `remind me at 15:30 call mom` in the command line. Each one is a small pink
   satellite with a ring of the time left; when time is up, a note flies out
   and a soft chime plays. They survive restarts and sleep.
+- **Notes.** `note buy milk` in the command line, the hub tile or "New note"
+  in the tray menu opens a small dark note. Links in the text open with a
+  click; Ctrl+wheel changes the text size. In the note's `⋯` menu it stays on
+  top, on the desktop under the windows, or as a normal window — or put it
+  over a program's window and stick it there: it moves with the window, hides
+  when the window is minimized and comes back when the program opens again.
+  In a browser it shows up only on its own tab. Each note is a plain .txt
+  file in `%APPDATA%\Moonlet\notes`.
 - **Temporary satellites.** Plugging the charger in or out and a low battery
   (20% and 10%) send a small copy of the battery satellite out with a short
   note. A new song can do the same (off by default).
@@ -55,7 +63,8 @@ views, no GUI frameworks.
   - timers and reminders: `timer 10 min`, `timer until 11:10`, `alarm 7:30`,
     `remind me in 20 min …`, `remind me at 15:30 …`, `remind me tomorrow at 9 …`;
   - Moonlet commands: `pause`, `next`, `back`, `volume 30`, `circle`, `oval`,
-    `rotate`, `screenshot`, `settings`, `bluetooth` (Russian words work too);
+    `rotate`, `screenshot`, `settings`, `bluetooth`, `note …`, `show notes`
+    (Russian words work too);
   - system commands: `sleep`, `lock`, `shutdown`, `restart`, `empty bin`.
     Shut down, restart and emptying the bin run only on a second Enter;
   - a calculator: `(1,5+2)*3`, `2^10`, `15%`, `√16`; Enter copies the answer;
@@ -85,7 +94,8 @@ line) opens the settings window: language, start with Windows, updates, orbit
 shape and speed, quick access (which satellites sit on the orbit and which
 tiles are in the hub, in what order; apps are found by searching the Start
 menu), temporary satellites, the command line hotkey and web search, the timer
-sound and the active timers. Every
+sound and the active timers, notes (the mode of a new note and all notes with
+Show and Delete). Every
 change applies at once. The window is a separate process, so closing it frees all of its memory.
 "What's new" in General → Updates lists the changes of the installed version.
 
@@ -104,7 +114,7 @@ hotkey = "Ctrl+Alt+Space"
 search = ""   # empty: the browser's engine, or e.g. "https://duckduckgo.com/?q="
 
 [hub]
-# Moonlet actions: screenshot, launcher, play, next, previous, bluetooth, rotation, shape, settings.
+# Moonlet actions: screenshot, launcher, play, next, previous, bluetooth, note, rotation, shape, settings.
 # Own tiles: "app:path", "file:path", "folder:path", "url:address", "cmd:text"; a name after |.
 tiles = ["screenshot", "launcher", "url:https://github.com|GitHub", "settings"]
 ```
@@ -137,7 +147,6 @@ without music and updates.
 
 ### Plans
 
-- Notes.
 - Scenarios: open a set of apps and put the windows in place with one word.
 - Games: FPS counter (optional, off by default).
 
@@ -183,6 +192,14 @@ DirectComposition — без веб-движков и GUI-фреймворков
   `напомни в 15:30 позвонить маме` в командной строке. Каждый — маленький
   розовый спутник с кольцом оставшегося времени; когда время вышло, вылетает
   надпись и звучит мягкий сигнал. Переживают перезапуск и сон.
+- **Заметки.** `заметка купить хлеб` в командной строке, плитка хаба или
+  «Новая заметка» в меню трея — появляется маленькая тёмная заметка. Ссылки
+  в тексте открываются щелчком, Ctrl+колёсико меняет размер текста. В меню `⋯`
+  заметки: поверх окон, на рабочем столе под окнами или обычным окном — или
+  поставьте её на окно программы и приклейте: она ездит вместе с окном,
+  прячется, когда окно свёрнуто, и возвращается, когда программу откроют снова.
+  У браузера — появляется только на своей вкладке. Каждая заметка — обычный
+  .txt в `%APPDATA%\Moonlet\notes`.
 - **Временные спутники.** Подключили или отключили зарядку, заряд упал до 20%
   и 10% — из спутника батареи вылетает его маленькая копия с короткой надписью.
   Так же можно показывать новый трек (по умолчанию выключено).
@@ -195,7 +212,8 @@ DirectComposition — без веб-движков и GUI-фреймворков
     `будильник 7:30`, `напомни через 20 мин …`, `напомни на 11:00 …`,
     `напомни завтра в 9 …`;
   - команды Moonlet: `пауза`, `дальше`, `назад`, `громкость 30`, `круг`,
-    `овал`, `вращение`, `скриншот`, `настройки`, `блютуз` (английские слова тоже);
+    `овал`, `вращение`, `скриншот`, `настройки`, `блютуз`, `заметка …`,
+    `заметки` (английские слова тоже);
   - системные команды: `сон`, `заблокировать`, `выключить`, `перезагрузка`,
     `корзина`. Выключение, перезагрузка и очистка корзины срабатывают только
     со второго Enter;
@@ -223,7 +241,8 @@ DirectComposition — без веб-движков и GUI-фреймворков
 строке) открывает окно настроек: язык, автозапуск, обновления, форма и скорость
 орбиты, быстрый доступ (какие спутники на орбите и какие плитки в хабе, в каком
 порядке; программу можно найти поиском по «Пуску»), временные спутники,
-клавиша и поиск командной строки, звук таймеров и список активных. Каждая правка применяется сразу. Окно — отдельный процесс:
+клавиша и поиск командной строки, звук таймеров и список активных, заметки
+(режим новой заметки и все заметки с «Показать» и «Удалить»). Каждая правка применяется сразу. Окно — отдельный процесс:
 закрыли его, и вся его память освободилась. «Что нового» в «Общих» → «Обновления»
 показывает изменения установленной версии.
 
@@ -240,7 +259,7 @@ hotkey = "Ctrl+Alt+Space"
 search = ""   # пусто — поисковик браузера, или, например, "https://duckduckgo.com/?q="
 
 [hub]
-# Действия Moonlet: screenshot, launcher, play, next, previous, bluetooth, rotation, shape, settings.
+# Действия Moonlet: screenshot, launcher, play, next, previous, bluetooth, note, rotation, shape, settings.
 # Свои плитки: "app:путь", "file:путь", "folder:путь", "url:адрес", "cmd:текст"; имя — после |.
 tiles = ["screenshot", "launcher", "url:https://github.com|GitHub", "settings"]
 ```
@@ -273,7 +292,6 @@ cargo build --release
 
 ### Планы
 
-- Заметки.
 - Сценарии: одним словом открыть нужные программы и расставить окна.
 - Игры: счётчик FPS (по желанию, по умолчанию выключен).
 

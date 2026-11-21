@@ -1531,6 +1531,7 @@ impl Orbit {
                 self.music_on()
             }
             Tile::Builtin(Builtin::Bluetooth) => self.bluetooth_state().is_some(),
+            Tile::Builtin(Builtin::Note) => notes_on(),
             Tile::Custom {
                 kind: Kind::Command,
                 ..
@@ -1609,6 +1610,7 @@ impl Orbit {
             Builtin::Next => ('\u{E893}', tr("Дальше", "Next")),
             Builtin::Previous => ('\u{E892}', tr("Назад", "Back")),
             Builtin::Bluetooth => ('\u{E702}', "Bluetooth"),
+            Builtin::Note => ('\u{E70B}', tr("Заметка", "Note")),
         }
     }
 
@@ -1785,6 +1787,14 @@ impl Orbit {
             Tile::Builtin(Builtin::Rotation) => CMD_ROTATION,
             Tile::Builtin(Builtin::Shape) => CMD_SHAPE_TOGGLE,
             Tile::Builtin(Builtin::Settings) => CMD_OPEN_CONFIG,
+            #[cfg(feature = "notes")]
+            Tile::Builtin(Builtin::Note) => {
+                self.close_hub()?;
+                crate::notes::create("");
+                return Ok(());
+            }
+            #[cfg(not(feature = "notes"))]
+            Tile::Builtin(Builtin::Note) => return Ok(()),
             Tile::Builtin(Builtin::PlayPause) => return self.hub_music(MusicKey::PlayPause),
             Tile::Builtin(Builtin::Next) => return self.hub_music(MusicKey::Next),
             Tile::Builtin(Builtin::Previous) => return self.hub_music(MusicKey::Previous),
@@ -1928,6 +1938,13 @@ impl Orbit {
         }
         Ok(())
     }
+}
+
+pub(crate) fn notes_on() -> bool {
+    #[cfg(feature = "notes")]
+    return crate::notes::enabled();
+    #[cfg(not(feature = "notes"))]
+    false
 }
 
 fn inside(point: Vec2, (x, y, w, h): (f64, f64, f64, f64)) -> bool {

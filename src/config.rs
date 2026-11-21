@@ -30,6 +30,10 @@ pub struct Config {
     pub launcher: LauncherConfig,
     #[cfg(feature = "timers")]
     pub timer_sound: String,
+    #[cfg(feature = "notes")]
+    pub notes_enabled: bool,
+    #[cfg(feature = "notes")]
+    pub notes_mode: crate::notes::store::Mode,
 }
 
 #[cfg(feature = "launcher")]
@@ -69,6 +73,10 @@ impl Default for Config {
             launcher: LauncherConfig::default(),
             #[cfg(feature = "timers")]
             timer_sound: crate::sound::DROP.to_string(),
+            #[cfg(feature = "notes")]
+            notes_enabled: true,
+            #[cfg(feature = "notes")]
+            notes_mode: crate::notes::store::Mode::Top,
         }
     }
 }
@@ -297,6 +305,11 @@ impl Config {
         }
         #[cfg(feature = "timers")]
         read.string("timers", "sound", &mut config.timer_sound)?;
+        #[cfg(feature = "notes")]
+        {
+            read.bool("modules", "notes", &mut config.notes_enabled)?;
+            read.notes_mode("notes", "mode", &mut config.notes_mode)?;
+        }
         Ok(config)
     }
 
@@ -342,6 +355,11 @@ impl Config {
                     "Command line on a hotkey (works together with the orbit).",
                 );
                 text += &format!("launcher = {}\n", self.launcher_enabled);
+            }
+            #[cfg(feature = "notes")]
+            {
+                text += &comment("Заметки на рабочем столе.", "Desktop notes.");
+                text += &format!("notes = {}\n", self.notes_enabled);
             }
             text += "\n";
             text += "[orbit]\n";
@@ -406,6 +424,19 @@ impl Config {
             );
             text += &format!("sound = {}\n", quoted(&self.timer_sound));
         }
+        #[cfg(feature = "notes")]
+        {
+            text += "\n[notes]\n";
+            text += &comment(
+                "Новая заметка: \"top\" — поверх окон, \"desktop\" — на рабочем столе, \"normal\" — обычное окно.",
+                "A new note: \"top\" stays on top, \"desktop\" sits on the desktop, \"normal\" is a normal window.",
+            );
+            text += &comment(
+                "Сами заметки лежат в папке notes рядом с этим файлом.",
+                "The notes themselves live in the notes folder next to this file.",
+            );
+            text += &format!("mode = \"{}\"\n", self.notes_mode.name());
+        }
         #[cfg(feature = "update")]
         {
             text += "\n[update]\n";
@@ -466,8 +497,8 @@ fn hub_toml(tiles: &[Tile]) -> String {
         "\"screenshot\", \"launcher\", \"play\", \"next\", \"previous\", \"bluetooth\",",
     );
     text += &comment(
-        "\"rotation\", \"shape\", \"settings\".",
-        "\"rotation\", \"shape\", \"settings\".",
+        "\"note\" (новая заметка), \"rotation\", \"shape\", \"settings\".",
+        "\"note\" (new note), \"rotation\", \"shape\", \"settings\".",
     );
     text += &comment(
         "Свои плитки: \"app:путь\", \"file:путь\", \"folder:путь\", \"url:адрес\", \"cmd:команда строки\";",
@@ -578,6 +609,29 @@ impl Reader<'_> {
                     tr(
                         "ожидалось \"auto\", \"check\" или \"off\"",
                         "expected \"auto\", \"check\" or \"off\"",
+                    ),
+                ))?;
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "notes")]
+    fn notes_mode(
+        &self,
+        section: &str,
+        key: &str,
+        out: &mut crate::notes::store::Mode,
+    ) -> Result<(), ParseError> {
+        if let Some(entry) = self.table.get(section, key) {
+            *out = entry
+                .value
+                .as_str()
+                .and_then(crate::notes::store::Mode::from_name)
+                .ok_or(ParseError::at(
+                    entry.line,
+                    tr(
+                        "ожидалось \"top\", \"desktop\" или \"normal\"",
+                        "expected \"top\", \"desktop\" or \"normal\"",
                     ),
                 ))?;
         }
@@ -805,6 +859,17 @@ tiles = []
         )
         .unwrap();
         assert!(empty.orbit.tiles.is_empty());
+    }
+
+    #[cfg(feature = "notes")]
+    #[test]
+    fn reads_notes_settings() {
+        use crate::notes::store::Mode;
+        let text = "[modules]\nnotes = false\n[notes]\nmode = \"desktop\"\n";
+        let config = Config::from_toml(text).unwrap();
+        assert!(!config.notes_enabled);
+        assert_eq!(config.notes_mode, Mode::Desktop);
+        assert!(Config::from_toml("[notes]\nmode = \"floating\"\n").is_err());
     }
 
     #[cfg(feature = "orbit")]

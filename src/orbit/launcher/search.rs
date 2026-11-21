@@ -21,6 +21,8 @@ pub enum Action {
     Complete(String),
     #[cfg(feature = "timers")]
     Remind(crate::reminders::Request),
+    #[cfg(feature = "notes")]
+    Note(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -41,6 +43,8 @@ pub enum Command {
     Shutdown,
     Restart,
     EmptyBin,
+    NewNote,
+    ShowNotes,
 }
 
 impl Command {
@@ -58,6 +62,7 @@ pub struct Context {
     pub bluetooth: Option<bool>,
     #[cfg_attr(not(feature = "timers"), allow(dead_code))]
     pub reminders_full: bool,
+    pub notes: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -125,6 +130,7 @@ enum Need {
     Nothing,
     Music,
     Bluetooth,
+    Notes,
 }
 
 struct CommandInfo {
@@ -135,7 +141,7 @@ struct CommandInfo {
     need: Need,
 }
 
-const COMMANDS: [CommandInfo; 15] = [
+const COMMANDS: [CommandInfo; 17] = [
     CommandInfo {
         command: Command::PlayPause,
         glyph: '\u{E768}',
@@ -267,6 +273,20 @@ const COMMANDS: [CommandInfo; 15] = [
         title: ("Очистить корзину", "Empty the Recycle Bin"),
         need: Need::Nothing,
     },
+    CommandInfo {
+        command: Command::NewNote,
+        glyph: '\u{E70B}',
+        words: &["заметка", "новая заметка", "new note"],
+        title: ("Новая заметка", "New note"),
+        need: Need::Notes,
+    },
+    CommandInfo {
+        command: Command::ShowNotes,
+        glyph: '\u{E70B}',
+        words: &["заметки", "показать заметки", "show notes", "all notes"],
+        title: ("Показать заметки", "Show notes"),
+        need: Need::Notes,
+    },
 ];
 
 pub fn confirm_title(command: Command) -> &'static str {
@@ -330,6 +350,12 @@ pub fn suggestions(text: &str, apps: &[App], context: Context, files: &[Found]) 
 
     #[cfg(feature = "timers")]
     if let Some(item) = reminder_item(query, context.reminders_full) {
+        items.push(item);
+    }
+    #[cfg(feature = "notes")]
+    if context.notes
+        && let Some(item) = note_item(query)
+    {
         items.push(item);
     }
 
@@ -438,6 +464,7 @@ fn command_items(query: &str, context: Context) -> Vec<(i32, Item)> {
         Need::Nothing => true,
         Need::Music => music,
         Need::Bluetooth => context.bluetooth.is_some(),
+        Need::Notes => context.notes,
     };
     for info in COMMANDS.iter().filter(|info| available(info.need)) {
         let best = info.words.iter().filter_map(|w| score(w, query)).max();
@@ -466,6 +493,29 @@ fn command_items(query: &str, context: Context) -> Vec<(i32, Item)> {
         found.push(item);
     }
     found
+}
+
+#[cfg(feature = "notes")]
+fn note_item(query: &str) -> Option<Item> {
+    let (first, rest) = query.trim().split_once(char::is_whitespace)?;
+    let rest = rest.trim();
+    if rest.is_empty() || !matches!(first.to_lowercase().as_str(), "заметка" | "note") {
+        return None;
+    }
+    let (open, close) = if is_english() {
+        ("\u{201C}", "\u{201D}")
+    } else {
+        ("«", "»")
+    };
+    let title = format!("{} {open}{rest}{close}", tr("Новая заметка:", "New note:"));
+    Some(Item {
+        glyph: '\u{E70B}',
+        title,
+        hint: tr("Enter — создать", "Enter to create").to_string(),
+        strong: true,
+        confirm: false,
+        action: Action::Note(rest.to_string()),
+    })
 }
 
 #[cfg(feature = "timers")]
@@ -675,6 +725,7 @@ mod tests {
         music: true,
         bluetooth: Some(false),
         reminders_full: false,
+        notes: true,
     };
 
     fn titles(text: &str, apps: &[App]) -> Vec<String> {
@@ -802,6 +853,35 @@ mod tests {
         let items = suggestions("пауза", &[], Context::default(), &[]);
         assert_eq!(items.len(), 1);
         assert!(suggestions("   ", &[], MUSIC, &[]).is_empty());
+    }
+
+    #[cfg(feature = "notes")]
+    #[test]
+    fn offers_new_notes() {
+        let first = |text: &str, context| suggestions(text, &[], context, &[]).remove(0);
+        let item = first("заметка купить хлеб", MUSIC);
+        assert_eq!(item.action, Action::Note("купить хлеб".into()));
+        let item = first("note buy milk", MUSIC);
+        assert_eq!(item.action, Action::Note("buy milk".into()));
+        assert_eq!(
+            first("заметка", MUSIC).action,
+            Action::Command(Command::NewNote)
+        );
+        let titles: Vec<String> = suggestions("зам", &[], MUSIC, &[])
+            .into_iter()
+            .map(|i| i.title)
+            .collect();
+        assert!(titles.contains(&"Новая заметка".to_string()));
+        assert_eq!(
+            first("заметки", MUSIC).action,
+            Action::Command(Command::ShowNotes)
+        );
+        let off = Context {
+            notes: false,
+            ..MUSIC
+        };
+        assert!(matches!(first("заметка", off).action, Action::Search(_)));
+        assert!(matches!(first("заметки", off).action, Action::Search(_)));
     }
 
     #[cfg(feature = "timers")]

@@ -40,6 +40,8 @@ use crate::config::OrbitConfig;
 use crate::fullscreen::{self, FullscreenWatch};
 #[cfg(feature = "launcher")]
 use crate::hotkey::Hotkey;
+#[cfg(feature = "notes")]
+use crate::notes;
 #[cfg(feature = "orbit")]
 use crate::orbit::Orbit;
 #[cfg(feature = "orbit")]
@@ -119,6 +121,12 @@ const FIRST_CHECK_MS: u32 = 60_000;
 const DAY_MS: u32 = 24 * 60 * 60 * 1000;
 #[cfg(feature = "launcher")]
 const CMD_MODULE_LAUNCHER: u32 = 115;
+#[cfg(feature = "notes")]
+pub const CMD_NOTE_NEW: u32 = 117;
+#[cfg(feature = "notes")]
+pub const CMD_NOTES_SHOW: u32 = 118;
+#[cfg(feature = "notes")]
+const CMD_MODULE_NOTES: u32 = 119;
 #[cfg(feature = "launcher")]
 const HOTKEY_ID: i32 = 1;
 #[cfg(all(feature = "orbit", feature = "dev"))]
@@ -260,6 +268,8 @@ pub fn run(updated: bool) -> Result<()> {
     };
     #[cfg(feature = "orbit")]
     app.start_orbit();
+    #[cfg(feature = "notes")]
+    app.sync_notes();
     #[cfg(feature = "timers")]
     app.reload_reminders();
     #[cfg(feature = "launcher")]
@@ -284,6 +294,8 @@ pub fn run(updated: bool) -> Result<()> {
         .and_then(|dir| DirWatch::new(&dir));
     message_loop(watch.as_ref());
 
+    #[cfg(feature = "notes")]
+    notes::stop();
     drop(APP.with(|cell| cell.borrow_mut().take()));
     unsafe {
         let _ = DestroyWindow(hwnd);
@@ -451,6 +463,11 @@ impl App {
                 self.reload_reminders();
                 Some(LRESULT(0))
             }
+            #[cfg(feature = "notes")]
+            notes::WM_NOTES => {
+                notes::message(wparam, lparam);
+                Some(LRESULT(0))
+            }
             #[cfg(feature = "timers")]
             WM_REMINDERS => {
                 self.reload_reminders();
@@ -600,6 +617,26 @@ impl App {
                 self.config.launcher_enabled,
             ));
         }
+        #[cfg(feature = "notes")]
+        {
+            if self.config.notes_enabled {
+                items.push(MenuItem::Action(
+                    CMD_NOTE_NEW,
+                    tr("Новая заметка", "New note"),
+                ));
+                if notes::count() > 0 {
+                    items.push(MenuItem::Action(
+                        CMD_NOTES_SHOW,
+                        tr("Показать заметки", "Show notes"),
+                    ));
+                }
+            }
+            items.push(MenuItem::Check(
+                CMD_MODULE_NOTES,
+                tr("Модуль «Заметки»", "Notes module").into(),
+                self.config.notes_enabled,
+            ));
+        }
         items.push(MenuItem::Check(
             CMD_AUTOSTART,
             tr("Запускать с Windows", "Start with Windows").into(),
@@ -685,6 +722,21 @@ impl App {
                 self.save("modules", "launcher", yes_no(on));
                 self.sync_hotkey();
                 self.sync_hub();
+            }
+            #[cfg(feature = "notes")]
+            CMD_NOTE_NEW => {
+                if self.config.notes_enabled {
+                    notes::create("");
+                }
+            }
+            #[cfg(feature = "notes")]
+            CMD_NOTES_SHOW => notes::show_all(),
+            #[cfg(feature = "notes")]
+            CMD_MODULE_NOTES => {
+                let on = !self.config.notes_enabled;
+                self.config.notes_enabled = on;
+                self.save("modules", "notes", yes_no(on));
+                self.sync_notes();
             }
             #[cfg(feature = "update")]
             CMD_UPDATE_AUTO => self.set_update_mode(UpdateMode::Auto),
@@ -801,6 +853,8 @@ impl App {
         self.sync_orbit(&old.orbit);
         #[cfg(feature = "launcher")]
         self.sync_hotkey();
+        #[cfg(feature = "notes")]
+        self.sync_notes();
         #[cfg(feature = "update")]
         if old.update != self.config.update {
             self.schedule_update_check(FIRST_CHECK_MS);
@@ -937,6 +991,8 @@ impl App {
         if let Some(orbit) = &mut self.orbit {
             let _ = orbit.set_hidden(fullscreen);
         }
+        #[cfg(feature = "notes")]
+        notes::set_fullscreen(fullscreen);
         self.update_rotation();
         #[cfg(feature = "update")]
         if !fullscreen {
@@ -958,6 +1014,19 @@ impl App {
             orbit.set_rotate_setting(setting);
             let _ = orbit.set_rotating(rotate);
         }
+    }
+}
+
+#[cfg(feature = "notes")]
+impl App {
+    fn sync_notes(&mut self) {
+        if !self.config.notes_enabled {
+            notes::stop();
+            return;
+        }
+        notes::start(self.config.notes_mode);
+        #[cfg(feature = "orbit")]
+        notes::set_fullscreen(self.fullscreen);
     }
 }
 

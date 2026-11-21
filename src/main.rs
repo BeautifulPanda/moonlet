@@ -12,6 +12,8 @@ mod config;
 mod hotkey;
 mod icon;
 mod lang;
+#[cfg(feature = "notes")]
+mod notes;
 #[cfg(feature = "timers")]
 mod reminders;
 mod screen;
