@@ -270,6 +270,8 @@ pub fn run(updated: bool) -> Result<()> {
     app.start_orbit();
     #[cfg(feature = "notes")]
     app.sync_notes();
+    #[cfg(feature = "scenarios")]
+    crate::scenarios::set_enabled(app.config.scenarios_enabled);
     #[cfg(feature = "timers")]
     app.reload_reminders();
     #[cfg(feature = "launcher")]
@@ -466,6 +468,11 @@ impl App {
             #[cfg(feature = "notes")]
             notes::WM_NOTES => {
                 notes::message(wparam, lparam);
+                Some(LRESULT(0))
+            }
+            #[cfg(feature = "scenarios")]
+            crate::scenarios::WM_SCENARIOS => {
+                self.scenario_outcome();
                 Some(LRESULT(0))
             }
             #[cfg(feature = "timers")]
@@ -855,6 +862,8 @@ impl App {
         self.sync_hotkey();
         #[cfg(feature = "notes")]
         self.sync_notes();
+        #[cfg(feature = "scenarios")]
+        crate::scenarios::set_enabled(self.config.scenarios_enabled);
         #[cfg(feature = "update")]
         if old.update != self.config.update {
             self.schedule_update_check(FIRST_CHECK_MS);
@@ -1027,6 +1036,21 @@ impl App {
         notes::start(self.config.notes_mode);
         #[cfg(feature = "orbit")]
         notes::set_fullscreen(self.fullscreen);
+    }
+}
+
+#[cfg(feature = "scenarios")]
+impl App {
+    fn scenario_outcome(&mut self) {
+        let Some(text) = crate::scenarios::take_outcome() else {
+            return;
+        };
+        if let Some(orbit) = &mut self.orbit
+            && orbit.message_notice(text.clone()).is_ok()
+        {
+            return;
+        }
+        self.tray.inform(tr("Сценарий", "Scenario"), &text);
     }
 }
 

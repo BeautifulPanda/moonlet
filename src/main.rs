@@ -8,6 +8,8 @@ mod autostart;
 #[cfg(any(feature = "launcher", feature = "settings"))]
 mod clipboard;
 mod config;
+#[cfg(any(feature = "notes", feature = "scenarios"))]
+mod foreign;
 #[cfg(feature = "launcher")]
 mod hotkey;
 mod icon;
@@ -16,6 +18,8 @@ mod lang;
 mod notes;
 #[cfg(feature = "timers")]
 mod reminders;
+#[cfg(feature = "scenarios")]
+mod scenarios;
 mod screen;
 #[cfg(feature = "settings")]
 mod settings;

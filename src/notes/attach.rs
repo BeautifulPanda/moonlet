@@ -1,40 +1,15 @@
 use std::collections::HashMap;
 
-use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT};
-use windows::Win32::Graphics::Dwm::{
-    DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute,
-};
-use windows::Win32::System::Threading::{
-    GetCurrentProcessId, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-    QueryFullProcessImageNameW,
-};
+use windows::Win32::Foundation::{HWND, POINT, RECT};
+use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GA_ROOT, GWL_EXSTYLE, GetAncestor, GetClassNameW, GetWindowLongW, GetWindowRect,
-    GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    GA_ROOT, GWL_EXSTYLE, GetAncestor, GetWindowLongW, IsIconic, IsWindowVisible, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST,
 };
-use windows::core::{BOOL, PWSTR};
 
 use super::store::Attach;
-
-const BROWSERS: [&str; 12] = [
-    "chrome.exe",
-    "msedge.exe",
-    "firefox.exe",
-    "brave.exe",
-    "opera.exe",
-    "vivaldi.exe",
-    "browser.exe",
-    "yandex.exe",
-    "arc.exe",
-    "zen.exe",
-    "librewolf.exe",
-    "floorp.exe",
-];
-
-pub fn is_browser(exe: &str) -> bool {
-    BROWSERS.contains(&exe)
-}
+pub use crate::foreign::{bounds, exe_of_process, is_browser, pid_of, title_of};
+use crate::foreign::{class_of, cloaked, is_shell, windows_top_down};
 
 pub fn tab_title(title: &str) -> &str {
     let cut = [" - ", " — "]
@@ -45,82 +20,6 @@ pub fn tab_title(title: &str) -> &str {
         Some(at) if at > 0 => title[..at].trim(),
         _ => title.trim(),
     }
-}
-
-pub fn exe_of_process(pid: u32) -> Option<String> {
-    unsafe {
-        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
-        let mut buffer = [0u16; 520];
-        let mut size = buffer.len() as u32;
-        let named = QueryFullProcessImageNameW(
-            process,
-            PROCESS_NAME_WIN32,
-            PWSTR(buffer.as_mut_ptr()),
-            &mut size,
-        );
-        let _ = CloseHandle(process);
-        named.ok()?;
-        let path = String::from_utf16_lossy(&buffer[..size as usize]);
-        let name = path.rsplit('\\').next().unwrap_or(&path);
-        Some(name.to_lowercase())
-    }
-}
-
-pub fn pid_of(hwnd: HWND) -> u32 {
-    let mut pid = 0;
-    unsafe {
-        GetWindowThreadProcessId(hwnd, Some(&mut pid));
-    }
-    pid
-}
-
-pub fn title_of(hwnd: HWND) -> String {
-    unsafe {
-        let length = GetWindowTextLengthW(hwnd);
-        if length <= 0 {
-            return String::new();
-        }
-        let mut buffer = vec![0u16; length as usize + 1];
-        let copied = GetWindowTextW(hwnd, &mut buffer);
-        String::from_utf16_lossy(&buffer[..copied.max(0) as usize])
-    }
-}
-
-pub fn bounds(hwnd: HWND) -> Option<RECT> {
-    let mut rect = RECT::default();
-    unsafe {
-        if DwmGetWindowAttribute(
-            hwnd,
-            DWMWA_EXTENDED_FRAME_BOUNDS,
-            (&mut rect as *mut RECT).cast(),
-            size_of::<RECT>() as u32,
-        )
-        .is_err()
-        {
-            GetWindowRect(hwnd, &mut rect).ok()?;
-        }
-    }
-    Some(rect)
-}
-
-fn cloaked(hwnd: HWND) -> bool {
-    let mut value = 0u32;
-    unsafe {
-        DwmGetWindowAttribute(
-            hwnd,
-            DWMWA_CLOAKED,
-            (&mut value as *mut u32).cast(),
-            size_of::<u32>() as u32,
-        )
-        .is_ok()
-            && value != 0
-    }
-}
-
-fn class_of(hwnd: HWND) -> String {
-    let mut buffer = [0u16; 64];
-    let length = unsafe { GetClassNameW(hwnd, &mut buffer) };
-    String::from_utf16_lossy(&buffer[..length.max(0) as usize])
 }
 
 pub fn usable(hwnd: HWND) -> bool {
@@ -136,29 +35,11 @@ pub fn usable(hwnd: HWND) -> bool {
             return false;
         }
     }
-    !matches!(
-        class_of(hwnd).as_str(),
-        "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd"
-    )
+    !is_shell(&class_of(hwnd))
 }
 
 pub fn matches(hwnd: HWND, attach: &Attach, exe: &str) -> bool {
     exe == attach.exe && (attach.tab.is_empty() || tab_title(&title_of(hwnd)) == attach.tab)
-}
-
-fn windows_top_down() -> Vec<HWND> {
-    unsafe extern "system" fn collect(hwnd: HWND, list: LPARAM) -> BOOL {
-        let list = unsafe { &mut *(list.0 as *mut Vec<HWND>) };
-        if unsafe { IsWindowVisible(hwnd) }.as_bool() {
-            list.push(hwnd);
-        }
-        BOOL(1)
-    }
-    let mut list: Vec<HWND> = Vec::new();
-    unsafe {
-        let _ = EnumWindows(Some(collect), LPARAM(&mut list as *mut Vec<HWND> as isize));
-    }
-    list
 }
 
 pub fn window_at(point: POINT) -> Option<HWND> {

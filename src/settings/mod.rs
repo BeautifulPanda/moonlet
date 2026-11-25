@@ -177,6 +177,10 @@ fn open(config: Config, file_error: Option<String>, news: bool) -> Result<()> {
     {
         ui.notes = page::note_infos();
     }
+    #[cfg(feature = "scenarios")]
+    {
+        ui.scenarios = crate::scenarios::store::load_all();
+    }
     let mut settings = Settings {
         hwnd,
         config,
@@ -450,10 +454,24 @@ impl Settings {
                 Some(LRESULT(0))
             }
             WM_SYSCHAR if self.recording => Some(LRESULT(0)),
-            #[cfg(feature = "notes")]
+            #[cfg(any(feature = "notes", feature = "scenarios"))]
             WM_ACTIVATE if (wparam.0 & 0xFFFF) as u32 != WA_INACTIVE => {
+                #[cfg(feature = "notes")]
                 self.reload_notes();
+                #[cfg(feature = "scenarios")]
+                self.reload_scenarios();
                 None
+            }
+            #[cfg(feature = "scenarios")]
+            crate::scenarios::WM_SCENARIOS => {
+                if let Some(text) = crate::scenarios::take_outcome() {
+                    self.ui.scenario_note = text;
+                    self.ui.scenario_warn = false;
+                    self.ui.scenario_name.clear();
+                }
+                page::reload_scenarios(&mut self.ui);
+                self.refresh();
+                Some(LRESULT(0))
             }
             WM_ACTIVATE if (wparam.0 & 0xFFFF) as u32 == WA_INACTIVE => {
                 if self.recording {
@@ -899,6 +917,11 @@ impl Settings {
             self.note_action(index, *action);
             return;
         }
+        #[cfg(feature = "scenarios")]
+        if let (Setting::ScenarioRow(index), Change::Pick(action)) = (setting, &change) {
+            self.scenario_action(index, *action);
+            return;
+        }
         #[cfg(feature = "orbit")]
         if let (Setting::Tile(index), Change::Move(delta)) = (setting, &change) {
             let to = (index as isize + delta).max(0) as usize;
@@ -1006,6 +1029,44 @@ impl Settings {
                 }
                 self.ui.reminders = crate::reminders::load();
                 self.refresh();
+            }
+            #[cfg(feature = "scenarios")]
+            Setting::ScenarioCapture => self.capture_scenario(),
+            #[cfg(feature = "scenarios")]
+            Setting::ScenarioWindow(w) => {
+                page::edit_open_scenario(&mut self.ui, |s| {
+                    if w < s.windows.len() {
+                        s.windows.remove(w);
+                    }
+                });
+                self.refresh();
+            }
+            #[cfg(feature = "scenarios")]
+            Setting::ScenarioUrl(w, u) => {
+                page::edit_open_scenario(&mut self.ui, |s| {
+                    if let Some(window) = s.windows.get_mut(w)
+                        && u < window.urls.len()
+                    {
+                        window.urls.remove(u);
+                    }
+                });
+                self.refresh();
+            }
+            #[cfg(feature = "scenarios")]
+            Setting::ScenariosFolder => {
+                if let Some(dir) = crate::scenarios::store::dir() {
+                    let _ = std::fs::create_dir_all(&dir);
+                    unsafe {
+                        ShellExecuteW(
+                            Some(self.hwnd),
+                            w!("open"),
+                            &HSTRING::from(dir.as_os_str()),
+                            PCWSTR::null(),
+                            PCWSTR::null(),
+                            SW_SHOWNORMAL,
+                        );
+                    }
+                }
             }
             #[cfg(feature = "notes")]
             Setting::NotesFolder => {
@@ -1408,6 +1469,91 @@ impl Settings {
             crate::notes::store::delete(id);
             self.ui.notes = page::note_infos();
         }
+        self.refresh();
+    }
+
+    #[cfg(feature = "scenarios")]
+    fn reload_scenarios(&mut self) {
+        let before = self.ui.scenarios.clone();
+        page::reload_scenarios(&mut self.ui);
+        if self.ui.scenarios != before {
+            self.refresh();
+        }
+    }
+
+    #[cfg(feature = "scenarios")]
+    fn capture_scenario(&mut self) {
+        use crate::scenarios::store::clean_name;
+        if self.commit_field() {
+            self.refresh();
+        }
+        let Some(name) = clean_name(&self.ui.scenario_name) else {
+            self.ui.scenario_note = tr("Сначала введите название", "Type a name first").to_string();
+            self.ui.scenario_warn = true;
+            self.refresh();
+            return;
+        };
+        let exists = self
+            .ui
+            .scenarios
+            .iter()
+            .any(|s| s.name.to_lowercase() == name.to_lowercase());
+        if exists && !self.ui.replace_armed {
+            self.ui.replace_armed = true;
+            self.ui.scenario_note = format!(
+                "«{name}» {}",
+                tr(
+                    "уже есть — нажмите ещё раз, чтобы заменить",
+                    "exists, press again to replace it"
+                )
+            );
+            self.ui.scenario_warn = true;
+            self.refresh();
+            return;
+        }
+        self.ui.replace_armed = false;
+        self.ui.scenario_note = tr("Запоминаю окна…", "Saving the windows…").to_string();
+        self.ui.scenario_warn = false;
+        self.refresh();
+        crate::scenarios::remember(&name, self.hwnd);
+    }
+
+    #[cfg(feature = "scenarios")]
+    fn scenario_action(&mut self, index: usize, action: usize) {
+        let setting = Setting::ScenarioRow(index);
+        if action == 0 {
+            self.ui.scenario_armed = None;
+            self.ui.message = None;
+            self.ui.scenario_open = if self.ui.scenario_open == Some(index) {
+                None
+            } else {
+                Some(index)
+            };
+            self.refresh();
+            return;
+        }
+        if self.ui.scenario_armed != Some(index) {
+            self.ui.scenario_armed = Some(index);
+            self.ui.message = Some((
+                setting,
+                tr(
+                    "Нажмите «Удалить» ещё раз — сценарий удалится",
+                    "Press Delete again to delete the scenario",
+                ),
+                true,
+            ));
+            self.refresh();
+            return;
+        }
+        self.ui.scenario_armed = None;
+        self.ui.message = None;
+        if let Some(scenario) = self.ui.scenarios.get(index) {
+            crate::scenarios::store::delete(&scenario.name);
+        }
+        if self.ui.scenario_open == Some(index) {
+            self.ui.scenario_open = None;
+        }
+        page::reload_scenarios(&mut self.ui);
         self.refresh();
     }
 

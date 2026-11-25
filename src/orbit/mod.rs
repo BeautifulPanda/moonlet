@@ -761,6 +761,19 @@ impl Orbit {
         }
     }
 
+    #[cfg(feature = "scenarios")]
+    pub fn message_notice(&mut self, text: String) -> Result<()> {
+        self.show_notice(info::Notice {
+            kind: None,
+            text,
+            look: info::Look {
+                color: 0xD9DCE3,
+                progress: 0.0,
+            },
+            long: true,
+        })
+    }
+
     fn show_notice(&mut self, notice: info::Notice) -> Result<()> {
         self.show_notice_at(notice, None, false)
     }
@@ -1536,6 +1549,10 @@ impl Orbit {
                 kind: Kind::Command,
                 ..
             } => cfg!(feature = "launcher"),
+            Tile::Custom {
+                kind: Kind::Scenario,
+                ..
+            } => scenarios_on(),
             _ => true,
         }
     }
@@ -1819,6 +1836,25 @@ impl Orbit {
                 let search = self.search.clone();
                 return self.run_text(target, &search);
             }
+            #[cfg(feature = "scenarios")]
+            Tile::Custom {
+                kind: Kind::Scenario,
+                target,
+                ..
+            } => {
+                self.close_hub()?;
+                if crate::scenarios::monitors().len() > 1 {
+                    let search = self.search.clone();
+                    return self.run_text(target, &search);
+                }
+                crate::scenarios::run(target, crate::scenarios::Place::AsSaved, self.host);
+                return Ok(());
+            }
+            #[cfg(not(feature = "scenarios"))]
+            Tile::Custom {
+                kind: Kind::Scenario,
+                ..
+            } => return Ok(()),
             Tile::Custom { target, .. } => {
                 shell::open(target, None);
                 return self.close_hub();
@@ -1944,6 +1980,13 @@ pub(crate) fn notes_on() -> bool {
     #[cfg(feature = "notes")]
     return crate::notes::enabled();
     #[cfg(not(feature = "notes"))]
+    false
+}
+
+pub(crate) fn scenarios_on() -> bool {
+    #[cfg(feature = "scenarios")]
+    return crate::scenarios::enabled();
+    #[cfg(not(feature = "scenarios"))]
     false
 }
 

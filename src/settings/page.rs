@@ -26,6 +26,8 @@ pub enum Section {
     Timers,
     #[cfg(feature = "notes")]
     Notes,
+    #[cfg(feature = "scenarios")]
+    Scenarios,
     About,
 }
 
@@ -43,6 +45,8 @@ impl Section {
             Section::Timers,
             #[cfg(feature = "notes")]
             Section::Notes,
+            #[cfg(feature = "scenarios")]
+            Section::Scenarios,
             Section::About,
         ]
     }
@@ -60,6 +64,8 @@ impl Section {
             Section::Timers => tr("Таймеры", "Timers"),
             #[cfg(feature = "notes")]
             Section::Notes => tr("Заметки", "Notes"),
+            #[cfg(feature = "scenarios")]
+            Section::Scenarios => tr("Сценарии", "Scenarios"),
             Section::About => tr("О программе", "About"),
         }
     }
@@ -77,6 +83,8 @@ impl Section {
             Section::Timers => 0xF687B3,
             #[cfg(feature = "notes")]
             Section::Notes => 0xD9DCE3,
+            #[cfg(feature = "scenarios")]
+            Section::Scenarios => 0x68D391,
             Section::About => 0x6F7584,
         }
     }
@@ -155,6 +163,24 @@ pub enum Setting {
     NoteRow(usize),
     #[cfg(feature = "notes")]
     NotesFolder,
+    #[cfg(feature = "scenarios")]
+    ScenariosModule,
+    #[cfg(feature = "scenarios")]
+    ScenarioName,
+    #[cfg(feature = "scenarios")]
+    ScenarioCapture,
+    #[cfg(feature = "scenarios")]
+    ScenarioRow(usize),
+    #[cfg(feature = "scenarios")]
+    ScenarioWindow(usize),
+    #[cfg(feature = "scenarios")]
+    ScenarioUrl(usize, usize),
+    #[cfg(feature = "scenarios")]
+    ScenarioAddUrl(usize),
+    #[cfg(feature = "scenarios")]
+    ScenariosFolder,
+    #[cfg(all(feature = "orbit", feature = "scenarios"))]
+    AddScenario,
     OpenFile,
     Website,
 }
@@ -284,6 +310,20 @@ pub struct Ui {
     pub notes: Vec<NoteInfo>,
     #[cfg(feature = "notes")]
     pub note_armed: Option<u64>,
+    #[cfg(feature = "scenarios")]
+    pub scenarios: Vec<crate::scenarios::store::Scenario>,
+    #[cfg(feature = "scenarios")]
+    pub scenario_name: String,
+    #[cfg(feature = "scenarios")]
+    pub scenario_note: String,
+    #[cfg(feature = "scenarios")]
+    pub scenario_warn: bool,
+    #[cfg(feature = "scenarios")]
+    pub replace_armed: bool,
+    #[cfg(feature = "scenarios")]
+    pub scenario_open: Option<usize>,
+    #[cfg(feature = "scenarios")]
+    pub scenario_armed: Option<usize>,
 }
 
 #[cfg(feature = "notes")]
@@ -329,6 +369,27 @@ pub fn note_infos() -> Vec<NoteInfo> {
 
 const NEWS: [(&str, &[(&str, &str)]); 2] = [
     (
+        "0.7.0",
+        &[
+            (
+                "У Moonlet теперь свой значок-полумесяц в Проводнике, на ярлыках и в диспетчере задач, а в свойствах файла — имя и версия.",
+                "Moonlet now has its own crescent icon in File Explorer, on shortcuts and in Task Manager, and its name and version in the file properties.",
+            ),
+            (
+                "Заметки: значок слева стал кнопкой цвета луны. Щелчок приклеивает заметку к окну под ней, а если окна нет — к рабочему столу; ещё щелчок — отклеивает. Правый щелчок — выбор режима. Кнопки «⋯» больше нет.",
+                "Notes: the icon on the left is now a moon-colored button. A click sticks the note to the window under it, or to the desktop if there is none; another click unsticks it. Right-click to pick the mode. The \"⋯\" button is gone.",
+            ),
+            (
+                "Сценарии: «запомнить работа» в строке запоминает открытые окна — программы, места, папки Проводника и вкладки браузера. Потом просто «работа»: недостающее запустится, окна встанут по местам. С несколькими экранами строка спросит, на какой.",
+                "Scenarios: \"remember work\" in the command line saves the open windows: apps, places, File Explorer folders and browser tabs. Later just type \"work\": whatever is missing starts and the windows go back in place. With several screens the command line asks which one.",
+            ),
+            (
+                "Раздел «Сценарии» в настройках: запомнить окна, убрать лишнее окно, добавить вкладку, удалить сценарий. Сценарий можно поставить плиткой в хаб.",
+                "A Scenarios section in the settings: save the windows, drop a window, add a tab, delete a scenario. A scenario can also be a hub tile.",
+            ),
+        ],
+    ),
+    (
         "0.6.1",
         &[
             (
@@ -342,23 +403,6 @@ const NEWS: [(&str, &[(&str, &str)]); 2] = [
             (
                 "Раздел «Заметки» в настройках: режим новой заметки, список всех заметок и папка, где каждая заметка — обычный .txt.",
                 "A Notes section in the settings: the mode for new notes, a list of all notes and the folder where each note is a plain .txt file.",
-            ),
-        ],
-    ),
-    (
-        "0.6.0",
-        &[
-            (
-                "Таймеры и напоминания из командной строки: «таймер 10 мин», «напомни через 20 мин …», «в 15:30 …», «завтра в 9 …». Переживают перезапуск и сон.",
-                "Timers and reminders from the command line: \"timer 10 min\", \"remind me in 20 min …\", \"at 15:30 …\", \"tomorrow at 9 …\". They survive restarts and sleep.",
-            ),
-            (
-                "Каждый таймер — маленький розовый спутник на орбите, кольцо показывает, сколько осталось. Наведите на орбиту — увидите время, в карточке можно отменить.",
-                "Each timer is a small pink satellite on the orbit; its ring shows the time left. Hover the orbit to see the time; the card can cancel it.",
-            ),
-            (
-                "Срабатывание — надпись, которая ждёт, пока вы вернётесь к компьютеру, и мягкий звук. Свой .wav или тишина — в разделе «Таймеры».",
-                "When time is up, a note waits until you're back at the computer, with a soft chime. Pick your own .wav or silence under Timers.",
             ),
         ],
     ),
@@ -425,6 +469,8 @@ pub fn rows(section: Section, config: &Config, ui: &Ui) -> Vec<Row> {
         Section::Timers => timers(&mut rows, config, ui),
         #[cfg(feature = "notes")]
         Section::Notes => notes(&mut rows, config, ui),
+        #[cfg(feature = "scenarios")]
+        Section::Scenarios => scenarios(&mut rows, config, ui),
         Section::About => about(&mut rows),
     }
     rows
@@ -825,6 +871,28 @@ fn hub(rows: &mut Vec<Row>, config: &Config, ui: &Ui) {
             )
             .dim(off),
         ),
+        #[cfg(feature = "scenarios")]
+        Some(Kind::Scenario) => {
+            let free = free_scenarios(ui, tiles);
+            if free.is_empty() {
+                rows.push(Row::info(if ui.scenarios.is_empty() {
+                    tr(
+                        "Сценариев пока нет — «запомнить работа» в строке",
+                        "No scenarios yet: \"remember work\" in the command line",
+                    )
+                } else {
+                    tr(
+                        "Все сценарии уже в хабе",
+                        "All scenarios are already in the hub",
+                    )
+                }));
+            } else {
+                let names = free.iter().map(|n| n.to_string()).collect();
+                rows.push(Row::new(Setting::AddScenario, "", "", Control::Picks(names)).dim(off));
+            }
+        }
+        #[cfg(not(feature = "scenarios"))]
+        Some(Kind::Scenario) => {}
     }
 }
 
@@ -879,6 +947,9 @@ fn add_kinds() -> Vec<Option<Kind>> {
     ];
     if cfg!(feature = "launcher") {
         kinds.push(Some(Kind::Command));
+    }
+    if cfg!(feature = "scenarios") {
+        kinds.push(Some(Kind::Scenario));
     }
     kinds
 }
@@ -1144,6 +1215,173 @@ fn notes(rows: &mut Vec<Row>, config: &Config, ui: &Ui) {
     ));
 }
 
+#[cfg(feature = "scenarios")]
+fn scenarios(rows: &mut Vec<Row>, config: &Config, ui: &Ui) {
+    use crate::scenarios::windows_text;
+    let off = !config.scenarios_enabled;
+    rows.push(Row::caption(tr("Модуль", "Module")));
+    rows.push(Row::new(
+        Setting::ScenariosModule,
+        tr("Сценарии", "Scenarios"),
+        tr(
+            "«запомнить работа» в строке, потом просто «работа»",
+            "\"remember work\" in the command line, then just \"work\"",
+        ),
+        Control::Toggle(config.scenarios_enabled),
+    ));
+
+    rows.push(Row::caption(tr("Новый сценарий", "New scenario")));
+    rows.push(
+        Row::new(
+            Setting::ScenarioName,
+            tr("Название", "Name"),
+            tr("Например, «работа»", "For example, \"work\""),
+            Control::Field(ui.scenario_name.clone()),
+        )
+        .dim(off),
+    );
+    let mut capture = Row::new(
+        Setting::ScenarioCapture,
+        tr("Открытые сейчас окна", "Windows open right now"),
+        if ui.scenario_note.is_empty() {
+            tr(
+                "Программы, места окон, папки и вкладки браузера",
+                "Apps, window places, folders and browser tabs",
+            )
+        } else {
+            ui.scenario_note.as_str()
+        },
+        Control::Button(tr("Запомнить", "Remember")),
+    )
+    .dim(off);
+    capture.warn = ui.scenario_warn;
+    rows.push(capture);
+
+    rows.push(Row::caption(tr("Все сценарии", "All scenarios")));
+    if ui.scenarios.is_empty() {
+        rows.push(Row::info(tr("Сценариев пока нет", "No scenarios yet")));
+    }
+    for (index, scenario) in ui.scenarios.iter().enumerate() {
+        let mut hint = windows_text(scenario.windows.len());
+        let screens = scenario.screens_used();
+        if screens > 1 {
+            hint += &format!(" · {} {screens}", tr("экранов:", "screens:"));
+        }
+        let open = ui.scenario_open == Some(index);
+        rows.push(
+            Row::new(
+                Setting::ScenarioRow(index),
+                &scenario.name,
+                &hint,
+                Control::Choice(
+                    vec![
+                        if open {
+                            tr("Скрыть", "Hide")
+                        } else {
+                            tr("Окна", "Windows")
+                        },
+                        tr("Удалить", "Delete"),
+                    ],
+                    None,
+                ),
+            )
+            .message(ui),
+        );
+    }
+
+    rows.push(Row::new(
+        Setting::ScenariosFolder,
+        tr("Папка со сценариями", "Scenarios folder"),
+        tr(
+            "Каждый сценарий — файл .txt",
+            "Each scenario is a .txt file",
+        ),
+        Control::Button(tr("Открыть", "Open")),
+    ));
+
+    if let Some(scenario) = ui.scenario_open.and_then(|i| ui.scenarios.get(i)) {
+        rows.push(Row::caption(&format!(
+            "{} «{}»",
+            tr("Окна сценария", "Windows of"),
+            scenario.name
+        )));
+        for (w, window) in scenario.windows.iter().enumerate() {
+            rows.push(Row::new(
+                Setting::ScenarioWindow(w),
+                &window.label(),
+                &window_hint(window),
+                Control::Button(tr("Убрать", "Remove")),
+            ));
+            if !crate::foreign::is_browser(&window.exe_name()) {
+                continue;
+            }
+            for (u, url) in window.urls.iter().enumerate() {
+                rows.push(Row::new(
+                    Setting::ScenarioUrl(w, u),
+                    url,
+                    tr("Вкладка", "Tab"),
+                    Control::Button(tr("Убрать", "Remove")),
+                ));
+            }
+            rows.push(Row::new(
+                Setting::ScenarioAddUrl(w),
+                tr("Добавить вкладку", "Add a tab"),
+                tr("Адрес — Enter", "Address, then Enter"),
+                Control::Field(String::new()),
+            ));
+        }
+    }
+}
+
+#[cfg(feature = "scenarios")]
+fn window_hint(window: &crate::scenarios::store::Window) -> String {
+    use crate::scenarios::store::State;
+    let exe = window.exe_name();
+    let mut parts = vec![exe.trim_end_matches(".exe").to_string()];
+    match window.state {
+        State::Maximized => parts.push(tr("развёрнуто", "maximized").to_string()),
+        State::Minimized => parts.push(tr("свёрнуто", "minimized").to_string()),
+        State::Normal => {}
+    }
+    if !window.folder.is_empty() {
+        parts.push(window.folder.clone());
+    }
+    parts.join(" · ")
+}
+
+#[cfg(all(feature = "orbit", feature = "scenarios"))]
+fn free_scenarios<'a>(ui: &'a Ui, tiles: &[Tile]) -> Vec<&'a str> {
+    ui.scenarios
+        .iter()
+        .map(|s| s.name.as_str())
+        .filter(|name| !tiles.contains(&Tile::custom(Kind::Scenario, name)))
+        .collect()
+}
+
+#[cfg(feature = "scenarios")]
+pub fn edit_open_scenario(ui: &mut Ui, edit: impl FnOnce(&mut crate::scenarios::store::Scenario)) {
+    use crate::scenarios::store;
+    let Some(index) = ui.scenario_open else {
+        return;
+    };
+    let Some(mut scenario) = ui.scenarios.get(index).cloned() else {
+        return;
+    };
+    edit(&mut scenario);
+    let _ = store::save(&scenario);
+    reload_scenarios(ui);
+}
+
+#[cfg(feature = "scenarios")]
+pub fn reload_scenarios(ui: &mut Ui) {
+    let open = ui
+        .scenario_open
+        .and_then(|i| ui.scenarios.get(i))
+        .map(|s| s.name.clone());
+    ui.scenarios = crate::scenarios::store::load_all();
+    ui.scenario_open = open.and_then(|name| ui.scenarios.iter().position(|s| s.name == name));
+}
+
 fn about(rows: &mut Vec<Row>) {
     rows.push(Row::caption("Moonlet"));
     rows.push(Row {
@@ -1232,6 +1470,45 @@ pub fn apply(config: &mut Config, ui: &mut Ui, setting: Setting, change: Change)
                 "sound",
                 crate::config::quoted(&config.timer_sound),
             )]
+        }
+        #[cfg(feature = "scenarios")]
+        (Setting::ScenariosModule, Toggle) => {
+            config.scenarios_enabled = !config.scenarios_enabled;
+            vec![write(
+                "modules",
+                "scenarios",
+                flag(config.scenarios_enabled),
+            )]
+        }
+        #[cfg(feature = "scenarios")]
+        (Setting::ScenarioName, Text(text)) => {
+            ui.scenario_name = text.trim().to_string();
+            ui.replace_armed = false;
+            Vec::new()
+        }
+        #[cfg(feature = "scenarios")]
+        (Setting::ScenarioAddUrl(w), Text(text)) => {
+            let Some(url) = crate::scenarios::capture::normalize_url(&text) else {
+                return Vec::new();
+            };
+            edit_open_scenario(ui, |s| {
+                if let Some(window) = s.windows.get_mut(w)
+                    && !window.urls.contains(&url)
+                {
+                    window.urls.push(url);
+                }
+            });
+            Vec::new()
+        }
+        #[cfg(all(feature = "orbit", feature = "scenarios"))]
+        (Setting::AddScenario, Pick(i)) => {
+            let Some(name) = free_scenarios(ui, &config.orbit.tiles)
+                .get(i)
+                .map(|n| n.to_string())
+            else {
+                return Vec::new();
+            };
+            add_tile(config, Tile::custom(Kind::Scenario, &name))
         }
         #[cfg(feature = "notes")]
         (Setting::NotesModule, Toggle) => {

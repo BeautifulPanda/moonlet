@@ -23,6 +23,10 @@ pub enum Action {
     Remind(crate::reminders::Request),
     #[cfg(feature = "notes")]
     Note(String),
+    #[cfg(feature = "scenarios")]
+    Scenario(String, crate::scenarios::Place),
+    #[cfg(feature = "scenarios")]
+    Remember(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -56,13 +60,35 @@ impl Command {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct Scene {
+    pub name: String,
+    key: String,
+}
+
+impl Scene {
+    #[cfg_attr(not(feature = "scenarios"), allow(dead_code))]
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            key: name.to_lowercase(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Default)]
-pub struct Context {
+pub struct Context<'a> {
     pub music: bool,
     pub bluetooth: Option<bool>,
     #[cfg_attr(not(feature = "timers"), allow(dead_code))]
     pub reminders_full: bool,
     pub notes: bool,
+    #[cfg_attr(not(feature = "scenarios"), allow(dead_code))]
+    pub scenarios: bool,
+    #[cfg_attr(not(feature = "scenarios"), allow(dead_code))]
+    pub scenes: &'a [Scene],
+    #[cfg_attr(not(feature = "scenarios"), allow(dead_code))]
+    pub screens: &'a [String],
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -289,7 +315,22 @@ const COMMANDS: [CommandInfo; 17] = [
     },
 ];
 
-pub fn confirm_title(command: Command) -> &'static str {
+pub fn confirm_title(action: &Action) -> String {
+    match action {
+        Action::Command(command) => command_confirm_title(*command).to_string(),
+        #[cfg(feature = "scenarios")]
+        Action::Remember(name) => format!(
+            "{} «{name}»",
+            tr(
+                "Enter ещё раз — заменить сценарий",
+                "Press Enter again to replace"
+            )
+        ),
+        _ => String::new(),
+    }
+}
+
+fn command_confirm_title(command: Command) -> &'static str {
     match command {
         Command::Shutdown => tr(
             "Enter ещё раз — выключить компьютер",
@@ -352,6 +393,14 @@ pub fn suggestions(text: &str, apps: &[App], context: Context, files: &[Found]) 
     if let Some(item) = reminder_item(query, context.reminders_full) {
         items.push(item);
     }
+    #[cfg(feature = "scenarios")]
+    if context.scenarios {
+        let found = scenario_items(query, context);
+        if !found.is_empty() {
+            items.extend(found);
+            return items;
+        }
+    }
     #[cfg(feature = "notes")]
     if context.notes
         && let Some(item) = note_item(query)
@@ -367,6 +416,14 @@ pub fn suggestions(text: &str, apps: &[App], context: Context, files: &[Found]) 
                 .into_iter()
                 .map(|(score, item)| (score - penalty, item)),
         );
+        #[cfg(feature = "scenarios")]
+        if context.scenarios {
+            scored.extend(
+                scene_items(query, context)
+                    .into_iter()
+                    .map(|(score, item)| (score - penalty, item)),
+            );
+        }
         for app in apps {
             let best =
                 score(&app.key, query).max(app.file_key.as_deref().and_then(|f| score(f, query)));
@@ -491,6 +548,117 @@ fn command_items(query: &str, context: Context) -> Vec<(i32, Item)> {
     }
     if music && let Some(item) = volume_item(query) {
         found.push(item);
+    }
+    found
+}
+
+#[cfg(feature = "scenarios")]
+const SCENE_GLYPH: char = '\u{E7C4}';
+#[cfg(feature = "scenarios")]
+const REMEMBER_GLYPH: char = '\u{E74E}';
+#[cfg(feature = "scenarios")]
+const REMEMBER_WORDS: [&str; 2] = ["запомнить", "remember"];
+
+#[cfg(feature = "scenarios")]
+fn remember_hint() -> Item {
+    Item {
+        glyph: REMEMBER_GLYPH,
+        title: tr(
+            "Запомнить окна: «запомнить работа»",
+            "Remember windows: \"remember work\"",
+        )
+        .to_string(),
+        hint: "Moonlet".to_string(),
+        strong: false,
+        confirm: false,
+        action: Action::Complete(format!("{} ", tr("запомнить", "remember"))),
+    }
+}
+
+#[cfg(feature = "scenarios")]
+fn run_items(name: &str, screens: &[String]) -> Vec<Item> {
+    use crate::scenarios::Place;
+    let title = format!("{} «{name}»", tr("Сценарий", "Scenario"));
+    let item = |title: String, place| Item {
+        glyph: SCENE_GLYPH,
+        title,
+        hint: tr("Enter — запустить", "Enter to start").to_string(),
+        strong: true,
+        confirm: false,
+        action: Action::Scenario(name.to_string(), place),
+    };
+    if screens.len() <= 1 {
+        return vec![item(title, Place::AsSaved)];
+    }
+    let mut items = vec![item(
+        format!("{title} — {}", tr("как запомнено", "as saved")),
+        Place::AsSaved,
+    )];
+    for (index, label) in screens.iter().enumerate().take(MAX_ITEMS - 2) {
+        items.push(item(format!("{title} — {label}"), Place::Screen(index)));
+    }
+    items
+}
+
+#[cfg(feature = "scenarios")]
+fn scenario_items(query: &str, context: Context) -> Vec<Item> {
+    let query = query.trim();
+    let lower = query.to_lowercase();
+    let first = lower.split_whitespace().next().unwrap_or("");
+    if REMEMBER_WORDS.contains(&first) {
+        let rest = query
+            .split_once(char::is_whitespace)
+            .map_or("", |(_, rest)| rest);
+        let Some(name) = crate::scenarios::store::clean_name(rest) else {
+            return vec![remember_hint()];
+        };
+        let exists = context.scenes.iter().any(|s| s.key == name.to_lowercase());
+        return vec![Item {
+            glyph: REMEMBER_GLYPH,
+            title: format!(
+                "{} «{name}»",
+                tr("Запомнить открытые окна как", "Remember open windows as")
+            ),
+            hint: if exists {
+                tr("Такой уже есть — заменит", "Exists, will be replaced")
+            } else {
+                tr("Enter — запомнить", "Enter to save")
+            }
+            .to_string(),
+            strong: true,
+            confirm: exists,
+            action: Action::Remember(name),
+        }];
+    }
+    match context.scenes.iter().find(|s| s.key == lower) {
+        Some(scene) => run_items(&scene.name, context.screens),
+        None => Vec::new(),
+    }
+}
+
+#[cfg(feature = "scenarios")]
+fn scene_items(query: &str, context: Context) -> Vec<(i32, Item)> {
+    let mut found = Vec::new();
+    if query.chars().count() < 2 {
+        return found;
+    }
+    for scene in context.scenes {
+        let Some(points) = score(&scene.key, query) else {
+            continue;
+        };
+        let mut item = run_items(&scene.name, &[]).remove(0);
+        item.strong = false;
+        item.hint = tr("Сценарий", "Scenario").to_string();
+        if context.screens.len() > 1 {
+            item.action = Action::Complete(scene.name.clone());
+        }
+        found.push((points, item));
+    }
+    if !query.contains(' ')
+        && query.chars().count() >= 3
+        && REMEMBER_WORDS.iter().any(|w| w.starts_with(query))
+    {
+        found.push((PREFIX_SCORE, remember_hint()));
     }
     found
 }
@@ -726,6 +894,9 @@ mod tests {
         bluetooth: Some(false),
         reminders_full: false,
         notes: true,
+        scenarios: true,
+        scenes: &[],
+        screens: &[],
     };
 
     fn titles(text: &str, apps: &[App]) -> Vec<String> {
@@ -900,6 +1071,56 @@ mod tests {
         assert!(matches!(
             first("напомни позвонить").action,
             Action::Complete(_)
+        ));
+    }
+
+    #[cfg(feature = "scenarios")]
+    #[test]
+    fn offers_scenarios() {
+        use crate::scenarios::Place;
+        crate::lang::set(crate::lang::Language::Russian);
+        let scenes = [Scene::new("Работа"), Scene::new("игра")];
+        let one = Context {
+            scenes: &scenes,
+            ..MUSIC
+        };
+        let apps = [app("Работа с PDF", "pdfwork")];
+        let items = suggestions("работа", &apps, one, &[]);
+        assert_eq!(
+            items[0].action,
+            Action::Scenario("Работа".into(), Place::AsSaved)
+        );
+        assert_eq!(items.len(), 1);
+        let screens = ["экран 1".to_string(), "экран 2".to_string()];
+        let two = Context {
+            screens: &screens,
+            ..one
+        };
+        let items = suggestions("Работа", &apps, two, &[]);
+        assert_eq!(items.len(), 3);
+        assert_eq!(
+            items[2].action,
+            Action::Scenario("Работа".into(), Place::Screen(1))
+        );
+        let items = suggestions("иг", &[], two, &[]);
+        assert_eq!(items[0].action, Action::Complete("игра".into()));
+        let items = suggestions("запомнить дом", &[], one, &[]);
+        assert_eq!(items[0].action, Action::Remember("дом".into()));
+        assert!(!items[0].confirm);
+        let items = suggestions("запомнить  работа", &[], one, &[]);
+        assert_eq!(items[0].action, Action::Remember("работа".into()));
+        assert!(items[0].confirm);
+        assert!(matches!(
+            suggestions("запомнить", &[], one, &[])[0].action,
+            Action::Complete(_)
+        ));
+        let off = Context {
+            scenarios: false,
+            ..one
+        };
+        assert!(matches!(
+            suggestions("работа", &apps, off, &[])[0].action,
+            Action::Launch(_)
         ));
     }
 

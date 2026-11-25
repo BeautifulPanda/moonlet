@@ -46,10 +46,12 @@ views, no GUI frameworks.
   and a soft chime plays. They survive restarts and sleep.
 - **Notes.** `note buy milk` in the command line, the hub tile or "New note"
   in the tray menu opens a small dark note. Links in the text open with a
-  click; Ctrl+wheel changes the text size. In the note's `⋯` menu it stays on
-  top, on the desktop under the windows, or as a normal window — or put it
-  over a program's window and stick it there: it moves with the window, hides
-  when the window is minimized and comes back when the program opens again.
+  click; Ctrl+wheel changes the text size. Put a note over a program's window
+  and click the moon-colored icon on its left: the note sticks there, moves
+  with the window, hides when the window is minimized and comes back when the
+  program opens again (over an empty desktop it sticks to the desktop; another
+  click unsticks it). Right-click the icon to keep it on top, on the desktop
+  under the windows, or as a normal window.
   In a browser it shows up only on its own tab. Each note is a plain .txt
   file in `%APPDATA%\Moonlet\notes`.
 - **Temporary satellites.** Plugging the charger in or out and a low battery
@@ -194,10 +196,12 @@ DirectComposition — без веб-движков и GUI-фреймворков
   надпись и звучит мягкий сигнал. Переживают перезапуск и сон.
 - **Заметки.** `заметка купить хлеб` в командной строке, плитка хаба или
   «Новая заметка» в меню трея — появляется маленькая тёмная заметка. Ссылки
-  в тексте открываются щелчком, Ctrl+колёсико меняет размер текста. В меню `⋯`
-  заметки: поверх окон, на рабочем столе под окнами или обычным окном — или
-  поставьте её на окно программы и приклейте: она ездит вместе с окном,
-  прячется, когда окно свёрнуто, и возвращается, когда программу откроют снова.
+  в тексте открываются щелчком, Ctrl+колёсико меняет размер текста. Поставьте
+  заметку на окно программы и щёлкните значок цвета луны слева: заметка
+  приклеится, будет ездить вместе с окном, прятаться, когда окно свёрнуто, и
+  возвращаться, когда программу откроют снова (над пустым рабочим столом —
+  приклеится к столу; ещё щелчок — отклеит). Правый щелчок по значку: поверх
+  окон, на рабочем столе под окнами или обычным окном.
   У браузера — появляется только на своей вкладке. Каждая заметка — обычный
   .txt в `%APPDATA%\Moonlet\notes`.
 - **Временные спутники.** Подключили или отключили зарядку, заряд упал до 20%

@@ -24,7 +24,7 @@ use super::shell;
 use super::{CARD_HIDE_SECS, Orbit, RETURN_SECS, point_from};
 use crate::app::{CMD_OPEN_CONFIG, CMD_ROTATION, CMD_SCREENSHOT, CMD_SHAPE_CIRCLE, CMD_SHAPE_OVAL};
 use crate::lang::tr;
-use search::{Action, Command, Context, Item};
+use search::{Action, Command, Context, Item, Scene};
 
 const CLASS: PCWSTR = w!("MoonletLauncher");
 pub const GONE_TIMER: usize = 7;
@@ -49,8 +49,10 @@ pub struct Launcher {
     apps: Vec<crate::apps::App>,
     search: String,
     files: files::Files,
-    armed: Option<Command>,
+    armed: Option<Action>,
     bin: Option<(u64, u64)>,
+    scenes: Vec<Scene>,
+    screens: Vec<String>,
 }
 
 impl Drop for Launcher {
@@ -103,6 +105,8 @@ impl Launcher {
                 files: files::Files::start(hwnd),
                 armed: None,
                 bin: None,
+                scenes: scenes(),
+                screens: screen_labels(),
             })
         }
     }
@@ -131,6 +135,11 @@ impl Launcher {
 
     fn compute(&mut self, context: Context) -> Vec<Item> {
         let text: String = self.text.iter().collect();
+        let context = Context {
+            scenes: &self.scenes,
+            screens: &self.screens,
+            ..context
+        };
         let mut items = match self.files.results.lock() {
             Ok(results) if text.trim().is_empty() => search::recent_items(&results.recent),
             Ok(results) => {
@@ -142,31 +151,54 @@ impl Launcher {
             Err(_) => search::suggestions(&text, &self.apps, context, &[]),
         };
         for item in &mut items {
-            match item.action {
-                Action::Command(Command::EmptyBin) => {
-                    let (count, bytes) = *self.bin.get_or_insert_with(system::bin_info);
-                    if count == 0 {
-                        item.title = tr("Корзина пуста", "The Recycle Bin is empty").to_string();
-                        item.confirm = false;
-                    } else {
-                        item.title = format!(
-                            "{}: {count} {} {}",
-                            item.title,
-                            tr("шт.,", "items,"),
-                            size_text(bytes)
-                        );
-                    }
+            if item.action == Action::Command(Command::EmptyBin) {
+                let (count, bytes) = *self.bin.get_or_insert_with(system::bin_info);
+                if count == 0 {
+                    item.title = tr("Корзина пуста", "The Recycle Bin is empty").to_string();
+                    item.confirm = false;
+                } else {
+                    item.title = format!(
+                        "{}: {count} {} {}",
+                        item.title,
+                        tr("шт.,", "items,"),
+                        size_text(bytes)
+                    );
                 }
-                Action::Command(command) if self.armed == Some(command) => {
-                    item.title = search::confirm_title(command).to_string();
-                    item.hint = tr("Подтверждение", "Confirm").to_string();
-                    item.strong = true;
-                }
-                _ => {}
+            }
+            if item.confirm && self.armed.as_ref() == Some(&item.action) {
+                item.title = search::confirm_title(&item.action);
+                item.hint = tr("Подтверждение", "Confirm").to_string();
+                item.strong = true;
             }
         }
         items
     }
+}
+
+fn scenes() -> Vec<Scene> {
+    #[cfg(feature = "scenarios")]
+    if crate::scenarios::enabled() {
+        return crate::scenarios::store::load_all()
+            .iter()
+            .map(|s| Scene::new(&s.name))
+            .collect();
+    }
+    Vec::new()
+}
+
+fn screen_labels() -> Vec<String> {
+    #[cfg(feature = "scenarios")]
+    if crate::scenarios::enabled() {
+        let monitors = crate::scenarios::monitors();
+        if monitors.len() > 1 {
+            return monitors
+                .iter()
+                .enumerate()
+                .map(|(i, m)| crate::scenarios::monitor_label(i, m))
+                .collect();
+        }
+    }
+    Vec::new()
 }
 
 fn size_text(bytes: u64) -> String {
@@ -236,18 +268,38 @@ impl Orbit {
 
     pub(super) fn run_text(&mut self, text: &str, search: &str) -> Result<()> {
         let apps = crate::apps::scan();
-        let items = search::suggestions(text, &apps, self.launcher_context(), &[]);
+        let (scenes, screens) = (scenes(), screen_labels());
+        let context = Context {
+            scenes: &scenes,
+            screens: &screens,
+            ..self.launcher_context()
+        };
+        let items = search::suggestions(text, &apps, context, &[]);
+        #[cfg(feature = "scenarios")]
+        let choose = items.len() > 1
+            && items
+                .iter()
+                .take(2)
+                .all(|i| matches!(i.action, Action::Scenario(..)));
+        #[cfg(not(feature = "scenarios"))]
+        let choose = false;
         let Some(item) = items.into_iter().next() else {
             return Ok(());
         };
-        if let (true, Action::Command(command)) = (item.confirm, &item.action) {
-            let command = *command;
+        if choose {
+            self.toggle_launcher(search)?;
+            if let Some(launcher) = &mut self.launcher {
+                launcher.insert(text);
+            }
+            return self.launcher_changed(true);
+        }
+        if item.confirm {
             self.toggle_launcher(search)?;
             if let Some(launcher) = &mut self.launcher {
                 launcher.insert(text);
             }
             self.launcher_changed(true)?;
-            return self.arm(command);
+            return self.arm(item.action);
         }
         match item.action {
             Action::Launch(path) => shell::launch(&path),
@@ -260,6 +312,10 @@ impl Orbit {
             Action::Remind(request) => self.add_reminder(&request),
             #[cfg(feature = "notes")]
             Action::Note(text) => crate::notes::create(&text),
+            #[cfg(feature = "scenarios")]
+            Action::Scenario(name, place) => crate::scenarios::run(&name, place, self.host),
+            #[cfg(feature = "scenarios")]
+            Action::Remember(name) => crate::scenarios::remember(&name, self.host),
             Action::Complete(text) => {
                 self.toggle_launcher(search)?;
                 if let Some(launcher) = &mut self.launcher {
@@ -271,7 +327,7 @@ impl Orbit {
         Ok(())
     }
 
-    fn launcher_context(&self) -> Context {
+    fn launcher_context(&self) -> Context<'static> {
         Context {
             music: self.has_music(),
             bluetooth: self.bluetooth_state(),
@@ -280,6 +336,9 @@ impl Orbit {
             #[cfg(not(feature = "timers"))]
             reminders_full: false,
             notes: super::notes_on(),
+            scenarios: super::scenarios_on(),
+            scenes: &[],
+            screens: &[],
         }
     }
 
@@ -405,11 +464,11 @@ impl Orbit {
         self.apply_all()
     }
 
-    fn arm(&mut self, command: Command) -> Result<()> {
+    fn arm(&mut self, action: Action) -> Result<()> {
         let Some(launcher) = &mut self.launcher else {
             return Ok(());
         };
-        launcher.armed = Some(command);
+        launcher.armed = Some(action);
         unsafe {
             SetTimer(Some(launcher.hwnd), ARM_TIMER, ARM_MS, None);
         }
@@ -423,12 +482,9 @@ impl Orbit {
         let Some(item) = launcher.items.get(index).cloned() else {
             return Ok(());
         };
-        if let Action::Command(command) = item.action
-            && item.confirm
-            && launcher.armed != Some(command)
-        {
+        if item.confirm && launcher.armed.as_ref() != Some(&item.action) {
             launcher.selected = index;
-            return self.arm(command);
+            return self.arm(item.action);
         }
         match item.action {
             Action::OpenFile(path) => {
@@ -476,6 +532,18 @@ impl Orbit {
             Action::Note(text) => {
                 self.close_launcher(false)?;
                 crate::notes::create(&text);
+                Ok(())
+            }
+            #[cfg(feature = "scenarios")]
+            Action::Scenario(name, place) => {
+                self.close_launcher(false)?;
+                crate::scenarios::run(&name, place, self.host);
+                Ok(())
+            }
+            #[cfg(feature = "scenarios")]
+            Action::Remember(name) => {
+                self.close_launcher(true)?;
+                crate::scenarios::remember(&name, self.host);
                 Ok(())
             }
         }

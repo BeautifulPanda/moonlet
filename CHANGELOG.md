@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.7.0] - 2026-11-25
+
+- The exe carries its own crescent icon (16 to 256 px, the same shape as the
+  tray icon) and version info, so File Explorer, shortcuts and Task Manager
+  show "Moonlet" with the moon instead of the default icon. `build.rs` writes
+  the `.res` file itself; no rc.exe or new crate is needed. The exe grew by
+  about 10 KB.
+- Notes: the mode icon on the left of the strip is now a moon-colored button.
+  A click sticks the note to the window under its middle, or to the desktop
+  (under all windows) if there is none; another click unsticks it. Hovering
+  the icon tells what a click will do. Right-click opens the mode menu
+  (always on top, on the desktop, normal window). The `⋯` button and the
+  "New note" and "Delete note" menu items are gone: use `✕`, the tray menu,
+  the command line or the hub tile.
+- Scenarios (Cargo feature `scenarios`, `[modules] scenarios`). `remember work`
+  in the command line (Russian `запомнить …` too) saves the open windows to
+  `scenarios\work.txt`: the program, where its window is, whether it is
+  maximized or minimized, the File Explorer folder, the active tab of each
+  browser window (read through UI Automation) and the app id of Store apps.
+  Typing `work` then moves the open windows back and starts what is missing;
+  new windows are caught with window events, not polling, for up to 30 s.
+  Windows of apps running as administrator can't be moved, and the result
+  says so. With several screens the command line offers "as saved" or a
+  screen; windows are mapped proportionally to the chosen screen. Replacing
+  an existing scenario needs a second Enter.
+- A Scenarios section in the settings: save the open windows under a name,
+  look at a scenario's windows, remove a window or a tab, add a tab, delete a
+  scenario (second press). Hub tiles can now be `scenario:<name>`.
+- Chrome and Edge lock their own session file while running, so tabs come
+  from the address bar of each window (the active tab), not from the session.
+
 ## [0.6.1] - 2026-11-21
 
 - Notes (Cargo feature `notes`, `[modules] notes`). A note is a small dark

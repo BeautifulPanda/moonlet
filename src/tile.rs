@@ -67,15 +67,17 @@ pub enum Kind {
     Folder,
     Url,
     Command,
+    Scenario,
 }
 
 impl Kind {
-    pub const ALL: [(Kind, &'static str); 5] = [
+    pub const ALL: [(Kind, &'static str); 6] = [
         (Kind::App, "app"),
         (Kind::File, "file"),
         (Kind::Folder, "folder"),
         (Kind::Url, "url"),
         (Kind::Command, "cmd"),
+        (Kind::Scenario, "scenario"),
     ];
 
     pub fn prefix(self) -> &'static str {
@@ -90,6 +92,7 @@ impl Kind {
             Kind::Folder => Some('\u{E8B7}'),
             Kind::Url => Some('\u{E774}'),
             Kind::Command => Some('\u{E756}'),
+            Kind::Scenario => Some('\u{E7C4}'),
             Kind::App | Kind::File => None,
         }
     }
@@ -102,6 +105,7 @@ impl Kind {
             Kind::Folder => tr("Папка", "Folder"),
             Kind::Url => tr("Сайт", "Website"),
             Kind::Command => tr("Команда", "Command"),
+            Kind::Scenario => tr("Сценарий", "Scenario"),
         }
     }
 }
@@ -201,7 +205,7 @@ pub fn default_name(kind: Kind, target: &str) -> String {
                 host.to_string()
             }
         }
-        Kind::Command => target.to_string(),
+        Kind::Command | Kind::Scenario => target.to_string(),
     }
 }
 

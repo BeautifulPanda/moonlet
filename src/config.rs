@@ -34,6 +34,8 @@ pub struct Config {
     pub notes_enabled: bool,
     #[cfg(feature = "notes")]
     pub notes_mode: crate::notes::store::Mode,
+    #[cfg(feature = "scenarios")]
+    pub scenarios_enabled: bool,
 }
 
 #[cfg(feature = "launcher")]
@@ -77,6 +79,8 @@ impl Default for Config {
             notes_enabled: true,
             #[cfg(feature = "notes")]
             notes_mode: crate::notes::store::Mode::Top,
+            #[cfg(feature = "scenarios")]
+            scenarios_enabled: true,
         }
     }
 }
@@ -310,6 +314,8 @@ impl Config {
             read.bool("modules", "notes", &mut config.notes_enabled)?;
             read.notes_mode("notes", "mode", &mut config.notes_mode)?;
         }
+        #[cfg(feature = "scenarios")]
+        read.bool("modules", "scenarios", &mut config.scenarios_enabled)?;
         Ok(config)
     }
 
@@ -360,6 +366,14 @@ impl Config {
             {
                 text += &comment("Заметки на рабочем столе.", "Desktop notes.");
                 text += &format!("notes = {}\n", self.notes_enabled);
+            }
+            #[cfg(feature = "scenarios")]
+            {
+                text += &comment(
+                    "Сценарии: «запомнить работа» и «работа» в командной строке.",
+                    "Scenarios: \"remember work\" and \"work\" in the command line.",
+                );
+                text += &format!("scenarios = {}\n", self.scenarios_enabled);
             }
             text += "\n";
             text += "[orbit]\n";

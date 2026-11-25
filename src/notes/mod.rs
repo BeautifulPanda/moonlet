@@ -11,9 +11,9 @@ use windows::Win32::Graphics::Dwm::{
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CreateFontIndirectW, CreateFontW, CreateSolidBrush, DT_CENTER, DT_END_ELLIPSIS,
     DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint, FillRect,
-    FrameRect, GetMonitorInfoW, HFONT, HGDIOBJ, InvalidateRect, MONITOR_DEFAULTTONEAREST,
-    MONITORINFO, MonitorFromPoint, MonitorFromRect, PAINTSTRUCT, SelectObject, SetBkMode,
-    SetTextColor, TRANSPARENT,
+    FrameRect, GetMonitorInfoW, GetTextExtentPoint32W, HFONT, HGDIOBJ, InvalidateRect,
+    MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint, MonitorFromRect, PAINTSTRUCT,
+    SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, LoadLibraryW};
 use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook, UnhookWinEvent};
@@ -88,26 +88,23 @@ const TEXT: u32 = 0xE6E8EE;
 const DIM: u32 = 0x8C92A0;
 const HOVER: u32 = 0x2A2E36;
 const WARN: u32 = 0xFFA28A;
+const MOON: u32 = 0xF2D27A;
 
 const MENU_TOP: u32 = 1;
 const MENU_DESKTOP: u32 = 2;
 const MENU_NORMAL: u32 = 3;
-const MENU_ATTACH: u32 = 4;
-const MENU_NEW: u32 = 5;
-const MENU_DELETE: u32 = 6;
 
 const GLYPH_TOP: char = '\u{E718}';
 const GLYPH_DESKTOP: char = '\u{E7F4}';
 const GLYPH_NORMAL: char = '\u{E70B}';
 const GLYPH_ATTACH: char = '\u{E71B}';
-const GLYPH_MORE: char = '\u{E712}';
 const GLYPH_CLOSE: char = '\u{E711}';
 
 const DESKTOP_FLAG: isize = 1;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Button {
-    Menu,
+    Pin,
     Close,
 }
 
@@ -126,6 +123,8 @@ struct Win {
     pid: Option<u32>,
     label: String,
     visible: bool,
+    hint: String,
+    back: Option<Mode>,
 }
 
 impl Drop for Win {
@@ -144,7 +143,6 @@ struct Notes {
     fullscreen: bool,
     global: Vec<HWINEVENTHOOK>,
     process: Vec<(u32, Vec<HWINEVENTHOOK>)>,
-    candidate: Option<HWND>,
 }
 
 thread_local! {
@@ -177,7 +175,6 @@ pub fn start(mode: Mode) {
             fullscreen: false,
             global: Vec::new(),
             process: Vec::new(),
-            candidate: None,
         })
     });
     for note in store::load() {
@@ -497,6 +494,8 @@ fn open_window(note: Note, text: &str) -> Option<Win> {
             pid: None,
             label: String::new(),
             visible: false,
+            hint: String::new(),
+            back: None,
         })
     }
 }
@@ -586,9 +585,7 @@ unsafe extern "system" fn note_proc(
         }
         Some(Reply::Menu(items, at)) => {
             let command = tray::show_menu(hwnd, &items, at);
-            if command == MENU_NEW {
-                create("");
-            } else if command != 0 {
+            if command != 0 {
                 with(|notes| notes.menu_chosen(hwnd, command));
             }
             LRESULT(0)
@@ -925,13 +922,14 @@ impl Notes {
         if y < top || y >= top + size {
             return None;
         }
+        let left = px(4.0, win.dpi);
+        if x >= left && x < left + size {
+            return Some(Button::Pin);
+        }
         let right = rect.right - px(4.0, win.dpi);
         let close_w = if win.armed { px(80.0, win.dpi) } else { size };
         if x >= right - close_w && x < right {
             return Some(Button::Close);
-        }
-        if x >= right - close_w - size && x < right - close_w {
-            return Some(Button::Menu);
         }
         None
     }
@@ -984,7 +982,11 @@ impl Notes {
                 let hover = Self::button_at(win, x, y);
                 if hover != win.hover {
                     win.hover = hover;
-                    invalidate_header(win);
+                    if hover == Some(Button::Pin) {
+                        let hint = self.pin_hint(index);
+                        self.wins[index].hint = hint;
+                    }
+                    invalidate_header(&self.wins[index]);
                 }
                 Reply::Done(LRESULT(0))
             }
@@ -996,26 +998,20 @@ impl Notes {
                 }
                 Reply::Done(LRESULT(0))
             }
-            WM_LBUTTONUP | WM_RBUTTONUP => {
-                let button = if msg == WM_RBUTTONUP {
-                    Some(Button::Menu)
-                } else {
-                    Self::button_at(&self.wins[index], x, y)
-                };
-                match button {
-                    Some(Button::Menu) => {
-                        let mut at = POINT { x, y };
-                        unsafe {
-                            let _ = windows::Win32::Graphics::Gdi::ClientToScreen(hwnd, &mut at);
-                        }
-                        Reply::Menu(self.menu(index), at)
-                    }
-                    Some(Button::Close) => {
-                        self.close_clicked(index);
-                        Reply::Done(LRESULT(0))
-                    }
-                    None => Reply::Done(LRESULT(0)),
+            WM_RBUTTONUP => {
+                let mut at = POINT { x, y };
+                unsafe {
+                    let _ = windows::Win32::Graphics::Gdi::ClientToScreen(hwnd, &mut at);
                 }
+                Reply::Menu(self.menu(index), at)
+            }
+            WM_LBUTTONUP => {
+                match Self::button_at(&self.wins[index], x, y) {
+                    Some(Button::Pin) => self.pin_clicked(index),
+                    Some(Button::Close) => self.close_clicked(index),
+                    None => {}
+                }
+                Reply::Done(LRESULT(0))
             }
             WM_NCRBUTTONUP if wparam.0 == HTCAPTION as usize => {
                 Reply::Menu(self.menu(index), POINT { x, y })
@@ -1193,6 +1189,88 @@ impl Notes {
         }
     }
 
+    fn window_under(win: &Win) -> Option<HWND> {
+        let rect = window_rect(win.hwnd);
+        attach::window_at(POINT {
+            x: (rect.left + rect.right) / 2,
+            y: (rect.top + rect.bottom) / 2,
+        })
+    }
+
+    fn pin_hint(&self, index: usize) -> String {
+        let win = &self.wins[index];
+        if win.note.attach.is_some() {
+            tr("Отклеить", "Unstick").to_string()
+        } else if win.note.mode == Mode::Desktop {
+            tr("Отклеить от рабочего стола", "Unstick from the desktop").to_string()
+        } else if let Some(hwnd) = Self::window_under(win) {
+            let exe = attach::exe_of_process(attach::pid_of(hwnd)).unwrap_or_default();
+            format!(
+                "{} {}",
+                tr("Приклеить:", "Stick to:"),
+                attach::label(hwnd, &exe)
+            )
+        } else {
+            tr("На рабочий стол", "Stick to the desktop").to_string()
+        }
+    }
+
+    fn pin_clicked(&mut self, index: usize) {
+        let default = self.mode;
+        let win = &mut self.wins[index];
+        if win.note.attach.is_some() {
+            win.note.attach = None;
+        } else if win.note.mode == Mode::Desktop {
+            let fallback = if default == Mode::Desktop {
+                Mode::Top
+            } else {
+                default
+            };
+            win.note.mode = win.back.take().unwrap_or(fallback);
+        } else if let Some(target) = Self::window_under(win) {
+            if !Self::stick(win, target) {
+                return;
+            }
+        } else {
+            win.back = Some(win.note.mode);
+            win.note.mode = Mode::Desktop;
+        }
+        self.show(index);
+        self.sync_hooks();
+        self.save_layout();
+        let hint = self.pin_hint(index);
+        let win = &mut self.wins[index];
+        win.hint = hint;
+        unsafe {
+            let _ = InvalidateRect(Some(win.hwnd), None, false);
+        }
+    }
+
+    fn stick(win: &mut Win, target: HWND) -> bool {
+        let Some(exe) = attach::exe_of_process(attach::pid_of(target)) else {
+            return false;
+        };
+        let Some(bounds) = attach::bounds(target) else {
+            return false;
+        };
+        let tab = if attach::is_browser(&exe) {
+            attach::tab_title(&attach::title_of(target)).to_string()
+        } else {
+            String::new()
+        };
+        let (corner, dx, dy) = attach::anchor(window_rect(win.hwnd), bounds);
+        win.label = attach::label(target, &exe);
+        win.note.attach = Some(Attach {
+            exe,
+            tab,
+            corner,
+            dx,
+            dy,
+        });
+        win.target = Some(target);
+        true
+    }
+
     fn menu(&mut self, index: usize) -> Vec<MenuItem> {
         let win = &self.wins[index];
         let attached = win.note.attach.is_some();
@@ -1214,48 +1292,13 @@ impl Notes {
                 !attached && mode == Mode::Normal,
             ),
         ];
-        self.candidate = None;
         if attached {
-            items.push(MenuItem::Check(
-                MENU_ATTACH,
-                format!("{} {}", tr("Приклеена к окну:", "Stuck to:"), win.label),
-                true,
+            items.push(MenuItem::Separator);
+            items.push(MenuItem::Label(
+                0,
+                format!("{} {}", tr("Приклеена:", "Stuck to:"), win.label),
             ));
-        } else {
-            let rect = window_rect(win.hwnd);
-            let center = POINT {
-                x: (rect.left + rect.right) / 2,
-                y: (rect.top + rect.bottom) / 2,
-            };
-            match attach::window_at(center) {
-                Some(hwnd) => {
-                    let exe = attach::exe_of_process(attach::pid_of(hwnd)).unwrap_or_default();
-                    items.push(MenuItem::Check(
-                        MENU_ATTACH,
-                        format!(
-                            "{} {}",
-                            tr("Приклеить к окну:", "Stick to window:"),
-                            attach::label(hwnd, &exe)
-                        ),
-                        false,
-                    ));
-                    self.candidate = Some(hwnd);
-                }
-                None => items.push(MenuItem::Label(
-                    0,
-                    tr(
-                        "Приклеить к окну: поставьте заметку на окно",
-                        "Stick to window: put the note over a window",
-                    )
-                    .to_string(),
-                )),
-            }
         }
-        items.extend([
-            MenuItem::Separator,
-            MenuItem::Action(MENU_NEW, tr("Новая заметка", "New note")),
-            MenuItem::Action(MENU_DELETE, tr("Удалить заметку", "Delete note")),
-        ]);
         items
     }
 
@@ -1264,53 +1307,16 @@ impl Notes {
             return;
         };
         let mode = match command {
-            MENU_TOP => Some(Mode::Top),
-            MENU_DESKTOP => Some(Mode::Desktop),
-            MENU_NORMAL => Some(Mode::Normal),
-            _ => None,
+            MENU_TOP => Mode::Top,
+            MENU_DESKTOP => Mode::Desktop,
+            MENU_NORMAL => Mode::Normal,
+            _ => return,
         };
-        if let Some(mode) = mode {
-            let win = &mut self.wins[index];
-            win.note.attach = None;
-            win.note.mode = mode;
-            self.show(index);
-        } else if command == MENU_ATTACH {
-            let Some(target) = self.candidate.take() else {
-                return;
-            };
-            let win = &mut self.wins[index];
-            if win.note.attach.is_some() {
-                return;
-            }
-            let Some(exe) = attach::exe_of_process(attach::pid_of(target)) else {
-                return;
-            };
-            let Some(bounds) = attach::bounds(target) else {
-                return;
-            };
-            let tab = if attach::is_browser(&exe) {
-                attach::tab_title(&attach::title_of(target)).to_string()
-            } else {
-                String::new()
-            };
-            let (corner, dx, dy) = attach::anchor(window_rect(win.hwnd), bounds);
-            win.label = attach::label(target, &exe);
-            win.note.attach = Some(Attach {
-                exe,
-                tab,
-                corner,
-                dx,
-                dy,
-            });
-            win.target = Some(target);
-            self.show(index);
-        } else if command == MENU_DELETE {
-            let id = self.wins[index].note.id;
-            self.delete(id);
-            return;
-        } else {
-            return;
-        }
+        let win = &mut self.wins[index];
+        win.note.attach = None;
+        win.note.mode = mode;
+        win.back = None;
+        self.show(index);
         self.sync_hooks();
         self.save_layout();
         let win = &self.wins[index];
@@ -1402,13 +1408,12 @@ fn paint(win: &Win) {
             (None, Mode::Normal) => GLYPH_NORMAL,
         };
         let left = px(4.0, dpi);
-        let mut rect = RECT {
+        let pin = RECT {
             left,
             top,
             right: left + size,
             bottom: top + size,
         };
-        draw(&glyph.to_string(), &mut rect, DIM, center);
 
         let close_w = if win.armed { px(80.0, dpi) } else { size };
         let close = RECT {
@@ -1417,19 +1422,13 @@ fn paint(win: &Win) {
             right,
             bottom: top + size,
         };
-        let more = RECT {
-            left: close.left - size,
-            top,
-            right: close.left,
-            bottom: top + size,
-        };
-        for (button, rect) in [(Button::Menu, more), (Button::Close, close)] {
+        for (button, rect) in [(Button::Pin, pin), (Button::Close, close)] {
             if win.hover == Some(button) {
                 fill(&rect, HOVER);
             }
         }
-        let mut more_text = more;
-        draw(&GLYPH_MORE.to_string(), &mut more_text, DIM, center);
+        let mut pin_text = pin;
+        draw(&glyph.to_string(), &mut pin_text, MOON, center);
         if win.armed {
             SelectObject(dc, HGDIOBJ(win.small.0));
             let mut label = close;
@@ -1439,16 +1438,31 @@ fn paint(win: &Win) {
             draw(&GLYPH_CLOSE.to_string(), &mut close_text, DIM, center);
         }
 
-        if win.note.attach.is_some() && !win.label.is_empty() {
-            SelectObject(dc, HGDIOBJ(win.small.0));
-            let mut label = RECT {
-                left: left + size,
-                top,
-                right: more.left - px(4.0, dpi),
-                bottom: top + size,
-            };
+        SelectObject(dc, HGDIOBJ(win.small.0));
+        let mut label = RECT {
+            left: left + size + px(2.0, dpi),
+            top,
+            right: close.left - px(4.0, dpi),
+            bottom: top + size,
+        };
+        let text = if win.hover == Some(Button::Pin) {
+            let full = format!("{} · {}", win.hint, tr("ПКМ — режим", "right-click: mode"));
+            let wide: Vec<u16> = full.encode_utf16().collect();
+            let mut extent = windows::Win32::Foundation::SIZE::default();
+            let _ = GetTextExtentPoint32W(dc, &wide, &mut extent);
+            if extent.cx <= label.right - label.left {
+                full
+            } else {
+                win.hint.clone()
+            }
+        } else if win.note.attach.is_some() {
+            win.label.clone()
+        } else {
+            String::new()
+        };
+        if !text.is_empty() {
             draw(
-                &win.label,
+                &text,
                 &mut label,
                 DIM,
                 DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS,
